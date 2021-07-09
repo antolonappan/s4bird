@@ -1,0 +1,10 @@
+.cache_s4bird
+.ipynb_checkpoints
+/__pycache__
+/temp
+*.fits
+*.pk
+*.db
+*.dat
+*.pkl
+*.DS_Store
