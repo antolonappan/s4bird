@@ -5,10 +5,11 @@ from plancklens.helpers import mpi
 from plancklens import utils
 import pickle as pk
 from config import *
-from noise import noise_realisation,  NoiseMap_s4_LAT
+from noise import NoiseMap_LB_white,  NoiseMap_s4_LAT
 import camb
 import pysm3 as pysm
 from shutil import copyfile
+import pysm3.units as u
 
 
 class s4bird_simbase(object):
@@ -116,7 +117,13 @@ class GaussSim:
     
     __slots__ = ["Cls","outfolder","nside","n_sim","seeds"]
     
-    def __init__(self,cl_len,outfolder,nside,n_sim,seed_file=None):
+    def __init__(self,cl_folder,cl_base,outfolder,nside,n_sim,seed_file=None):
+        cl_file = os.path.join(cl_folder,f"{cl_base}_lensedCls.dat")
+        print(f"Using {cl_file}")
+        cl_len = utils.camb_clfile(cl_file)
+        
+        
+        
         self.Cls = [cl_len['tt'],cl_len['ee'],cl_len['bb'],cl_len['te']*0]
         self.outfolder = outfolder
         self.nside = nside
@@ -125,10 +132,18 @@ class GaussSim:
             os.makedirs(self.outfolder,exist_ok=True)
             
         fname = os.path.join(self.outfolder,'seeds.pkl')
+        seeds = [np.random.randint(11111,99999) for i in range(self.n_sim)]
         
         if (not os.path.isfile(fname)) and (mpi.rank == 0) and (seed_file == None):
-            seeds = [np.random.randint(11111,99999) for i in range(self.n_sim)]
             pk.dump(seeds, open(fname,'wb'), protocol=2)
+        elif (os.path.isfile(fname)) and (mpi.rank==0):
+            if len(pk.load(open(fname,'rb'))) != self.n_sim:
+                print('The No of simulation is different from the No of seeds: Rewriting Seeds')
+                pk.dump(seeds, open(fname,'wb'), protocol=2)
+        else:
+            pass
+            
+    
         mpi.barrier()
         
         
@@ -139,10 +154,14 @@ class GaussSim:
         self.seeds = pk.load(open(fname,'rb'))
 
     def make_map(self,idx):
-        np.random.seed(self.seeds[idx])
-        maps = hp.synfast(self.Cls,nside=self.nside,new=True)
-        hp.write_map(os.path.join(self.outfolder,f"cmbonly_{idx}.fits"),maps)
-        del maps
+        fname = os.path.join(self.outfolder,f"cmbonly_{idx}.fits")
+        if os.path.isfile(fname):
+            print(f"{fname} already exist")
+        else:
+            np.random.seed(self.seeds[idx])
+            maps = hp.synfast(self.Cls,nside=self.nside,new=True)
+            hp.write_map(fname,maps)
+            del maps
         
     def run_job(self):
         jobs = np.arange(self.n_sim)
@@ -151,11 +170,11 @@ class GaussSim:
             self.make_map(i)        
 
             
-class Sim_experiment:
+class SimExperiment:
     
     __slots__ = ["infolder","outfolder","nside","mask","fwhm","nlev_t","nlev_p","n_sim","red_noise","noise_model"]
     
-    def __init__(self,infolder,outfolder,nside,maskpath,fwhm,nlev_t,nlev_p,n_sim,red_noise=False,noise_folder=None):
+    def __init__(self,infolder,outfolder,nside,maskpath,fwhm,nlev_t,nlev_p,n_sim,noise_folder,red_noise=False,):
         self.infolder = infolder
         self.outfolder = outfolder
         self.nside = nside
@@ -166,43 +185,54 @@ class Sim_experiment:
         self.n_sim = n_sim
         self.red_noise = red_noise
         self.noise_model = None
+        
         if red_noise:
-            assert noise_folder is not None
             self.noise_model =  NoiseMap_s4_LAT(noise_folder,self.nside,self.n_sim)
+        else:
+            self.noise_model = NoiseMap_LB_white(noise_folder,self.nside,self.nlev_t,self.nlev_p,self.n_sim)
             
         if mpi.rank == 0:
             os.makedirs(self.outfolder,exist_ok=True)
+            
+        print(f"using {self.infolder}, saved to {self.outfolder}")
         
     def make_map(self, idx):
-        maps = hp.read_map(os.path.join(self.infolder,f"cmbonly_{idx}.fits"),(0,1,2))
-        if self.red_noise:
-            print("simulation using 1/f noise")
-            noise = self.noise_model.get_maps(idx)
-        else:
-            print('simulation using white noise')
-            noise = noise_realisation(self.nside,self.nlev_t,self.nlev_p,0)
-        sm_maps = hp.smoothing(maps,self.fwhm) + noise
-        del(maps,noise)
-        alms = hp.map2alm([sm_maps[0]*self.mask,sm_maps[1]*self.mask,sm_maps[2]*self.mask])
-        hp.write_alm(os.path.join(self.outfolder,f"cmbonly_{idx}.fits"),alms)
-        del alms
+        fname = os.path.join(self.outfolder,f"cmbonly_{idx}.fits")
         
+        if os.path.isfile(fname):
+            print(f"{fname} already exist")
+        else:
+            maps = hp.read_map(os.path.join(self.infolder,f"cmbonly_{idx}.fits"),(0,1,2))
+            if self.red_noise:
+                print("simulation using 1/f noise")
+                noise = self.noise_model.get_maps(idx)
+            else:
+                print('simulation using white noise')
+                noise = self.noise_model.get_maps(idx)
+            sm_maps = hp.smoothing(maps,self.fwhm) + noise
+            del(maps,noise)
+            alms = hp.map2alm([sm_maps[0]*self.mask,sm_maps[1]*self.mask,sm_maps[2]*self.mask])
+            hp.write_alm(fname,alms)
+            del alms
+
     def run_job(self):
         jobs = np.arange(self.n_sim)
         for i in jobs[mpi.rank::mpi.size]:
             print(f"Making map-{i} in processor-{mpi.rank}")
             self.make_map(i)
             
-class CMB_Lensed:
+class CMBLensed:
     
-    def __init__(self,outfolder,nside,cl_folder,n_sim,seed_file=None,prefix='cmbonly_'):
+    def __init__(self,outfolder,nside,cl_folder,base,n_sim,seed_file=None,prefix='cmbonly_'):
         
         self.outfolder = outfolder
         self.cl_folder = cl_folder
+        self.base = base
         self.nside = nside
         self.prefix = prefix
         self.n_sim = n_sim
         self.seed_file = seed_file
+        
         
         if mpi.rank == 0:
             os.makedirs(self.cl_folder,exist_ok=True)
@@ -212,8 +242,8 @@ class CMB_Lensed:
             
             if len(os.listdir(self.cl_folder))  < 2:
                 print('Cl folder is Empty, Trying to execute CAMB')
-                src = '/global/u2/l/lonappan/workspace/s4bird/s4bird/validations_dir/ini/CAMB.ini'
-                dst = f"{self.cl_folder}/CAMB.in"
+                src = '/global/u2/l/lonappan/workspace/S4bird/ini/CAMB.ini'
+                dst = f"{self.cl_folder}/CAMB.ini"
                 print('    Coping Template')
                 copyfile(src,dst)
                 print('    Copied sucessfully')
@@ -221,7 +251,7 @@ class CMB_Lensed:
                 with open(dst) as f:
                     lines = f.readlines()
                     
-                lines[0] = f"output_root = {self.cl_folder}/s4bird\n"
+                lines[0] = f"output_root = {self.cl_folder}/{self.base}\n"
                 with open(dst, "w") as f:
                     f.writelines(lines)
                 
@@ -230,12 +260,19 @@ class CMB_Lensed:
                 print('    Cls Generated')
             else:
                 print("Found Cls, Trying to use that")
+                
+        seeds = [np.random.randint(11111,99999) for i in range(self.n_sim)]
 
         fname = os.path.join(self.outfolder,'seeds.pkl')
         if (not os.path.isfile(fname)) and (mpi.rank == 0) and (seed_file == None):
-            seeds = [np.random.randint(11111,99999) for i in range(self.n_sim)]
             pk.dump(seeds, open(fname,'wb'), protocol=2)
-            print(f"Random Seeds are saved to {fname}")
+        elif (os.path.isfile(fname)) and (mpi.rank==0):
+            if len(pk.load(open(fname,'rb'))) != self.n_sim:
+                print('The No of simulation is different from the No of seeds: Rewriting Seeds')
+                pk.dump(seeds, open(fname,'wb'), protocol=2)
+        else:
+            pass
+        
         mpi.barrier()
         
         
@@ -245,7 +282,7 @@ class CMB_Lensed:
         self.seeds = pk.load(open(fname,'rb'))
     
     def sky(self,idx):
-        cl_fname = os.path.join(self.cl_folder,'s4bird_lenspotentialCls.dat')
+        cl_fname = os.path.join(self.cl_folder,f"{self.base}_lenspotentialCls.dat")
         cfg = {'c1':
                    {"class":"CMBLensed",
                     "cmb_spectra":f"{cl_fname}",
@@ -256,12 +293,15 @@ class CMB_Lensed:
     
     def make_map(self,idx):
         fname = os.path.join(self.outfolder,f"{self.prefix}{idx}.fits")
-        sky = self.sky(idx)
-        maps = sky.get_emission(150 * u.GHz)
-        maps_cmb = maps.to(u.uK_CMB, equivalencies=u.cmb_equivalencies(150*u.GHz))
-        del maps
-        hp.write_map(fname, maps_cmb)
-        del maps_cmb
+        if os.path.isfile(fname):
+            print(f"{fname} already exist")
+        else:
+            sky = self.sky(idx)
+            maps = sky.get_emission(150 * u.GHz)
+            maps_cmb = maps.to(u.uK_CMB, equivalencies=u.cmb_equivalencies(150*u.GHz))
+            del maps
+            hp.write_map(fname, maps_cmb)
+            del maps_cmb
         
     
     def run_job(self):
@@ -269,6 +309,7 @@ class CMB_Lensed:
         for i in jobs[mpi.rank::mpi.size]:
             print(f"Making map-{i} in processor-{mpi.rank}")
             self.make_map(i) 
+        
         
     
 
