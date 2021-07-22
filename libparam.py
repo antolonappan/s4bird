@@ -27,14 +27,15 @@ try:
     args = parser.parse_args()
     ini = args.inifile[0]
 except:
-    ini = toml.load('/global/u2/l/lonappan/workspace/s4bird/s4bird/validations_dir/libparam.ini')['file']
+    ini = toml.load('/global/u2/l/lonappan/workspace/S4bird/libparam.ini')['file']
 
 
-ini_dir = '/global/u2/l/lonappan/workspace/s4bird/s4bird/validations_dir/ini'
+ini_dir = '/global/u2/l/lonappan/workspace/S4bird/ini'
 ini_file = os.path.join(ini_dir,ini)
 
 config = toml.load(ini_file)
 
+# GET CONFIG SECTIONS
 qe_config = config['QE']
 file_config = config['File']
 map_config = config['Map']
@@ -43,32 +44,46 @@ pseudo_cl_config = config['Pseudo_cl']
 fid_config = config['Fiducial']
 eff_config = config['Efficency']
 
+# QE CONFIG
 lmax_ivf = qe_config['lmax_ivf']
 lmin_ivf = qe_config['lmin_ivf']  
 lmax_qlm = qe_config['lmax_qlm']
+qe_key = qe_config["key"]
+
+# MAP CONFIG
 nlev_t = map_config['nlev_t']
 nlev_p = map_config['nlev_p']
 nside = map_config['nside']
 n_sims = map_config['nsims']
-qe_key = qe_config["key"]
-
-base = file_config['base_name']
-workbase = file_config['base_folder']
-
-pathbase = os.path.join(workbase,base)
-
-map_path = os.path.join(pathbase,'maps')
-
 maskpaths = [map_config['mask']]
 
-TEMP =  os.path.join(pathbase,qe_config['folder'])
+# FILE CONFIG
+base = file_config['base_name']
+workbase = file_config['base_folder']
+pathbase = os.path.join(workbase,base)
+
+if bool(map_config['do_GS']):
+    path_final = os.path.join(pathbase,'GS')
+else:
+    path_final = os.path.join(pathbase,'RS')        
+map_path = os.path.join(path_final,'Maps')
+
+# CL CONFIG
+cl_folder = os.path.join(workbase,fid_config['folder'])
+cl_base = fid_config['base']
+
+############################################################
+
+TEMP =  os.path.join(path_final,qe_config['folder'])
 
 transf = hp.gauss_beam( map_config['beam']/ 60. / 180. * np.pi, lmax=lmax_ivf)
 
+cl_unl_fname = os.path.join(cl_folder,f"{cl_base}_lenspotentialCls.dat")
+cl_len_fname = os.path.join(cl_folder,f"{cl_base}_lensedCls.dat")
 
-cl_unl = utils.camb_clfile(fid_config['unlensed'])
-cl_len = utils.camb_clfile(fid_config['lensed'])
-cl_weight = utils.camb_clfile(fid_config['lensed'])
+cl_unl = utils.camb_clfile(cl_unl_fname)
+cl_len = utils.camb_clfile(cl_len_fname)
+cl_weight = utils.camb_clfile(cl_len_fname)
 cl_weight['bb'] *= 0.
 
 
@@ -101,14 +116,14 @@ nhl_dd = nhl.nhl_lib_simple(os.path.join(TEMP, 'nhl_dd'), ivfs, cl_weight, lmax_
 qresp_dd = qresp.resp_lib_simple(os.path.join(TEMP, 'qresp'), lmax_ivf, cl_weight, cl_len,
                                  {'t': ivfs.get_ftl(), 'e':ivfs.get_fel(), 'b':ivfs.get_fbl()}, lmax_qlm)
 
-delens_path = os.path.join(pathbase, delens_config['folder'])
+delens_path = os.path.join(path_final, delens_config['folder'])
 
 transfer = transf if bool(delens_config['apply_transf']) else None
 
 delens_lib = Delensing(delens_path,sims,ivfs_raw,qlms_dd,qresp_dd,nhl_dd,n_sims,lmax_qlm,cl_unl['pp'],nside,maskpaths[0],qe_key,transf=transfer,save_template=True,verbose=False)
 
 
-pseudocl_path = os.path.join(pathbase, pseudo_cl_config['folder'])
+pseudocl_path = os.path.join(path_final, pseudo_cl_config['folder'])
 
 if pseudo_cl_config['beam'] == 'None':
     beam_pcl = None
@@ -118,13 +133,17 @@ else:
 pseudocl_lib = Pseudo_cl(pseudocl_path,delens_lib,pseudo_cl_config['mask'],beam=beam_pcl)
 
 
-eff_path = os.path.join(pathbase,eff_config['folder'])
-if eff_config['bias_file'] == 'None':
-    bias_file = None
-else:
-    bias_file = eff_config['bias_file']
+eff_path = os.path.join(path_final,eff_config['folder'])
+
+
+bias_file = os.path.join(pathbase,'GS','Efficency','bias.pkl') if bool(eff_config['bias_do']) else None
+
+    
 
 eff_lib = Efficency(eff_path,pseudocl_lib,n_sims,cl_len['bb'],bool(eff_config['bias_do']),bias_file)
+
+if bool(eff_config['save_bias']) and bool(map_config['do_GS']):
+    eff_lib.save_bias()
 
 if __name__ == "__main__":
     jobs = np.arange(n_sims)

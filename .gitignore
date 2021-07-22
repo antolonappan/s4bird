@@ -8,3 +8,5 @@
 *.dat
 *.pkl
 *.DS_Store
+*.err
+*.out
