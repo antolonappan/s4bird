@@ -4,7 +4,6 @@ import healpy as hp
 from plancklens.helpers import mpi
 from plancklens import utils
 import pickle as pk
-from config import *
 from noise import NoiseMap_LB_white,  NoiseMap_s4_LAT
 import camb
 import pysm3 as pysm

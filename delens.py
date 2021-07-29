@@ -54,7 +54,7 @@ class Delensing:
         self.verbose = verbose
         self.transf = transf
         
-        
+
         assert ivfs.hashdict()['cinv_t']['ninv'][1] == maskpath
         
         self.qnorm = utils.cli(self.qresp)
@@ -196,7 +196,8 @@ class Efficency:
         len_m, len_s, del_m, del_s = self.get_stat
         pl.figure(figsize=(8,8))
         pl.errorbar(self.lib_pcl.ell,  cl2dl*len_m, yerr=cl2dl*len_s, fmt='r.', markersize='10', label='Lensed')
-        pl.errorbar(self.lib_pcl.ell,  cl2dl*(del_m-self.bias), yerr=cl2dl*del_s, fmt='b.', markersize='10',label='Delensed')
+        pl.errorbar(self.lib_pcl.ell,  cl2dl*del_m, yerr=cl2dl*del_s, fmt='g.', markersize='10',label='Delensed-biased')
+        pl.errorbar(self.lib_pcl.ell,  cl2dl*(del_m-self.bias), yerr=cl2dl*np.sqrt(del_s**2 + self.bias_std**2), fmt='b.', markersize='10',label='Delensed-debiase')
         pl.plot(l, ((self.fiducial*fwhm**2) +n)*dl, label='Fiducial')
         pl.xscale('log')
         pl.yscale('log')
@@ -227,10 +228,9 @@ class Efficency:
             print('Bias subtracted')
             diff = diff - self.bias
             std = np.sqrt(len_s**2 + del_s**2 + self.bias_std**2)
-            print('hello')
         else:
             std = np.sqrt(len_s**2 + del_s**2)
-            print('not subtracting')
+            print('Bias not subtracting')
         
         pk.dump([self.lib_pcl.ell,diff,std], open(fname,'wb'))
         return diff,std

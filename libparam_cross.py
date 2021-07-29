@@ -13,7 +13,7 @@ from simulation import  s4bird_sims_general
 from plancklens.helpers import mpi
 from delens import Delensing, Pseudo_cl, Efficency
 import toml
-
+from likelihood import LH_simple, LH_smith
 
 try:
     import argparse
@@ -27,10 +27,10 @@ try:
     args = parser.parse_args()
     ini = args.inifile[0]
 except:
-    ini = toml.load('/global/u2/l/lonappan/workspace/s4bird/s4bird/validations_dir/libparam.ini')['file']
+    ini = toml.load('/global/u2/l/lonappan/workspace/S4bird/ini/libparam.ini')['file']
 
 
-ini_dir = '/global/u2/l/lonappan/workspace/s4bird/s4bird/validations_dir/ini'
+ini_dir = '/global/u2/l/lonappan/workspace/S4bird/ini'
 ini_file = os.path.join(ini_dir,ini)
 
 config = toml.load(ini_file)
@@ -40,16 +40,27 @@ delens_config = config['Delens']
 pseudo_cl_config = config['Pseudo_cl']
 fid_config = config['Fiducial']
 eff_config = config['Efficency']
+map_config = config['Map']
+lh_config = config['Likelihood']
 
 base = file_config['base_name']
 workbase = file_config['base_folder']
-pathbase = os.path.join(workbase,base)
+if bool(map_config['do_GS']):
+    pathbase = os.path.join(workbase,base,'GS')
+else:
+    pathbase = os.path.join(workbase,base,'RS')
 
 #combination
 qe_config = config['QE']
 comb_config = config['Combination']
-map_config = config['Map']
 qe_key = qe_config["key"]
+
+#Fiducial
+cl_folder = os.path.join(workbase,fid_config['folder'])
+cl_base = fid_config['base']
+cl_unl_fname = os.path.join(cl_folder,f"{cl_base}_lenspotentialCls.dat")
+cl_len_fname = os.path.join(cl_folder,f"{cl_base}_lensedCls.dat")
+
 
 #LiteBird
 qe_config_LB = config['QE_LB']
@@ -64,26 +75,29 @@ qe_key_LB = qe_config_LB["key"]
 nlev_t_LB = map_config_LB['nlev_t']
 nlev_p_LB = map_config_LB['nlev_p']
 nside_LB = map_config_LB['nside']
-n_sims_LB = map_config_LB['nsims']
+n_sims_LB = map_config['nsims']
 
 
 base_LB = file_config_LB['base_name']
 workbase_LB = file_config_LB['base_folder']
 
-pathbase_LB = os.path.join(workbase_LB,base_LB)
+if bool(map_config['do_GS']):
+    pathbase_LB = os.path.join(workbase_LB,base_LB,'GS')
+else:
+    pathbase_LB = os.path.join(workbase_LB,base_LB,'RS')
 
-map_path_LB = os.path.join(pathbase_LB,'maps')
+map_path_LB = os.path.join(pathbase_LB,'Maps')
 
 maskpaths_LB = [map_config_LB['mask']]
 
 TEMP_LB =  os.path.join(pathbase_LB,qe_config_LB['folder'])
 
-transf_LB = hp.gauss_beam( map_config_LB['beam']/ 60. / 180. * np.pi, lmax=lmax_ivf_LB)
+transf_LB = hp.gauss_beam(map_config_LB['beam']/ 60. / 180. * np.pi, lmax=lmax_ivf_LB)
 
 
-cl_unl = utils.camb_clfile(fid_config['unlensed'])
-cl_len = utils.camb_clfile(fid_config['lensed'])
-cl_weight = utils.camb_clfile(fid_config['lensed'])
+cl_unl = utils.camb_clfile(cl_unl_fname)
+cl_len = utils.camb_clfile(cl_len_fname)
+cl_weight = utils.camb_clfile(cl_len_fname)
 cl_weight['bb'] *= 0.
 
 
@@ -118,8 +132,12 @@ file_config_S4 = config['File_S4']
 
 base_S4 = file_config_S4['base_name']
 workbase_S4 = file_config_S4['base_folder']
-pathbase_S4 = os.path.join(workbase_S4,base_S4)
-map_path_S4 = os.path.join(pathbase_S4,'maps')
+if bool(map_config['do_GS']):
+    pathbase_S4 = os.path.join(workbase_S4,base_S4,'GS')
+else:
+    pathbase_S4 = os.path.join(workbase_S4,base_S4,'RS')
+    
+map_path_S4 = os.path.join(pathbase_S4,'Maps')
 maskpaths_S4 = [map_config_S4['mask']]
 
 if not bool(comb_config['do']):
@@ -131,7 +149,7 @@ if not bool(comb_config['do']):
     nlev_t_S4 = map_config_S4['nlev_t']
     nlev_p_S4 = map_config_S4['nlev_p']
     nside_S4 = map_config_S4['nside']
-    n_sims_S4= map_config_S4['nsims']
+    n_sims_S4= map_config['nsims']
 
 
     TEMP_S4 =  os.path.join(pathbase_S4,qe_config_S4['folder'])
@@ -202,12 +220,20 @@ pseudocl_lib = Pseudo_cl(pseudocl_path,delens_lib,pseudo_cl_config['mask'],beam=
 
 
 eff_path = os.path.join(pathbase,eff_config['folder'])
-if eff_config['bias_file'] == 'None':
-    bias_file = None
-else:
-    bias_file = eff_config['bias_file']
+
+bias_file = os.path.join(workbase,base,'GS','Efficency','bias.pkl') if bool(eff_config['bias_do']) else None
+
 eff_lib = Efficency(eff_path,pseudocl_lib,n_sims_S4,cl_len['bb'],bool(eff_config['bias_do']),bias_file)
 
+if bool(eff_config['save_bias']) and bool(map_config['do_GS']):
+    eff_lib.save_bias()
+    
+lh_path = os.path.join(pathbase,lh_config['folder'])
+if lh_config['do']:
+    init = [lh_config['r'],lh_config['Alens']]
+    lh_lib = locals()[f"LH_{lh_config['model']}"](lh_path,eff_lib,lh_config['nsamples'],
+                                                  cl_len['bb'],nlev_p_LB,map_config_LB['beam'],
+                                              lh_config['lmin'],lh_config['lmax'],init,bool(lh_config['fit_lensed']))
 
 if __name__ == "__main__":
     jobs = np.arange(n_sims_S4)

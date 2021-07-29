@@ -14,6 +14,8 @@ from plancklens.helpers import mpi
 from delens import Delensing, Pseudo_cl, Efficency
 import toml
 
+from likelihood import LH_simple, LH_smith
+
 
 try:
     import argparse
@@ -27,7 +29,7 @@ try:
     args = parser.parse_args()
     ini = args.inifile[0]
 except:
-    ini = toml.load('/global/u2/l/lonappan/workspace/S4bird/libparam.ini')['file']
+    ini = toml.load('/global/u2/l/lonappan/workspace/S4bird/ini/libparam.ini')['file']
 
 
 ini_dir = '/global/u2/l/lonappan/workspace/S4bird/ini'
@@ -43,6 +45,7 @@ delens_config = config['Delens']
 pseudo_cl_config = config['Pseudo_cl']
 fid_config = config['Fiducial']
 eff_config = config['Efficency']
+lh_config = config['Likelihood']
 
 # QE CONFIG
 lmax_ivf = qe_config['lmax_ivf']
@@ -144,6 +147,14 @@ eff_lib = Efficency(eff_path,pseudocl_lib,n_sims,cl_len['bb'],bool(eff_config['b
 
 if bool(eff_config['save_bias']) and bool(map_config['do_GS']):
     eff_lib.save_bias()
+
+
+lh_path = os.path.join(path_final,lh_config['folder'])
+if lh_config['do']:
+    init = [lh_config['r'],lh_config['Alens']]
+    lh_lib = locals()[f"LH_{lh_config['model']}"](lh_path,eff_lib,lh_config['nsamples'],cl_len['bb'],nlev_p,map_config['beam'],
+                                              lh_config['lmin'],lh_config['lmax'],init,bool(lh_config['fit_lensed']))
+
 
 if __name__ == "__main__":
     jobs = np.arange(n_sims)
