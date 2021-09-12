@@ -22,10 +22,10 @@ export ini=cmbs4.ini
 
 
 #1hr 20 mins
-mpirun -np 100 python libparam.py $ini -ivt 
+#mpirun -np 100 python libparam.py $ini -ivt 
 
 #1hr 15 mins
-#mpirun -np 100 python libparam.py $ini -ivp
+mpirun -np 100 python libparam.py $ini -ivp
 
 #20 min
 #mpirun -np 100 python libparam.py $ini -dd
