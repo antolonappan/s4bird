@@ -3,7 +3,7 @@ from sqlalchemy import create_engine
 
 class surveys:
     
-    def __init__(self, database='Data/surveys.db'):
+    def __init__(self, database='/global/u2/l/lonappan/workspace/S4bird/Data/surveys.db'):
         
         self.database = database
         self.engine = create_engine(f'sqlite:///{self.database}', echo=True)
