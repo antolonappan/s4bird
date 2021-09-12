@@ -29,9 +29,9 @@ class maps2alm:
 
 if __name__ == '__main__':
     
-    scr = os.environ['SCRATCH']
-    inpath = os.path.join(scr,'S4BIRD','LiteBird_s4mask','Noise')
-    outpath = os.path.join(scr,'S4BIRD','LiteBird_s4mask','NoiseAlm')
+    scr = '/project/projectdirs/litebird/simulations/'
+    inpath = os.path.join(scr,'S4BIRD','CMBS4','Noise')
+    outpath = os.path.join(scr,'S4BIRD','CMBS4','NoiseAlm')
 
     m2a = maps2alm(inpath,outpath,'noiseonly',100)
     m2a.run_job()

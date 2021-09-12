@@ -493,4 +493,3 @@ class Pseudo_cl:
         pl.ylim(ymin,ymax)
         if save:
             pl.savefig(filename,bbox_inches='tight')
-            

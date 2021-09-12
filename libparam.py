@@ -14,7 +14,7 @@ from plancklens.helpers import mpi
 from delens import Delensing, Pseudo_cl, Efficency
 import toml
 
-from likelihood import LH_simple, LH_smith
+from likelihood import LH_simple, LH_smith, LH_HL
 
 
 try:
@@ -153,7 +153,7 @@ lh_path = os.path.join(path_final,lh_config['folder'])
 if lh_config['do']:
     init = [lh_config['r'],lh_config['Alens']]
     lh_lib = locals()[f"LH_{lh_config['model']}"](lh_path,eff_lib,lh_config['nsamples'],cl_len['bb'],nlev_p,map_config['beam'],
-                                              lh_config['lmin'],lh_config['lmax'],init,bool(lh_config['fit_lensed']))
+                                              lh_config['lmin'],lh_config['lmax'],init,bool(lh_config['fit_lensed']),base)
 
 
 if __name__ == "__main__":

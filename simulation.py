@@ -67,24 +67,26 @@ class s4bird_sims_general(s4bird_simbase):
             print(f"Simulation uses a combination of {self.filebase} and {self.filebase2}")
             print(f"Simulation Warning: Default first filebase and first beam assumes LiteBird")
             self.combination = True
-
-        
-            w_exp = pk.load(open(self.weights,'rb'))
-            w_lb_ = w_exp['lb']
-            w_s4_ = w_exp['s4']
-            w_total = w_lb_ + w_s4_
             
             lb_fl = hp.gauss_beam(np.radians(self.beam_de[0]/60),lmax=6143)
             s4_fl = hp.gauss_beam(np.radians(self.beam_de[1]/60),lmax=6143)
-            self.w_lb = w_lb_/w_total * utils.cli(lb_fl)
-            self.w_s4 = w_s4_/w_total * utils.cli(s4_fl)
+        
+            w_exp = pk.load(open(self.weights,'rb'))
+            self.w_lb_t = w_exp['LB']['T'] * utils.cli(lb_fl)
+            self.w_lb_p = w_exp['LB']['P'] * utils.cli(lb_fl)
+            self.w_s4_t = w_exp['S4']['T'] * utils.cli(s4_fl)
+            self.w_s4_p = w_exp['S4']['P'] * utils.cli(s4_fl)
+            
             self.fl = hp.gauss_beam(np.radians(self.beam_con/60),lmax=6143)
             
             
     def get_combined_field(self,idx,hdu):
         alm1 = hp.read_alm(os.path.join(self.filebase,f"{self.prefix}{idx}.fits"), hdu=hdu)
         alm2 = hp.read_alm(os.path.join(self.filebase2,f"{self.prefix}{idx}.fits"), hdu=hdu)
-        alm = hp.almxfl(hp.almxfl(alm1,self.w_lb) + hp.almxfl(alm2,self.w_s4), self.fl)
+        if hdu ==1:
+            alm = hp.almxfl(hp.almxfl(alm1,self.w_lb_t) + hp.almxfl(alm2,self.w_s4_t), self.fl)
+        else:
+            alm = hp.almxfl(hp.almxfl(alm1,self.w_lb_p) + hp.almxfl(alm2,self.w_s4_p), self.fl)
         del (alm1,alm2)
         nanarray  = np.where(np.isnan(alm) == True)[0]
         alm[nanarray] = 0

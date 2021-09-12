@@ -13,7 +13,7 @@ from simulation import  s4bird_sims_general
 from plancklens.helpers import mpi
 from delens import Delensing, Pseudo_cl, Efficency
 import toml
-from likelihood import LH_simple, LH_smith
+from likelihood import LH_simple, LH_smith, LH_HL
 
 try:
     import argparse
@@ -233,7 +233,7 @@ if lh_config['do']:
     init = [lh_config['r'],lh_config['Alens']]
     lh_lib = locals()[f"LH_{lh_config['model']}"](lh_path,eff_lib,lh_config['nsamples'],
                                                   cl_len['bb'],nlev_p_LB,map_config_LB['beam'],
-                                              lh_config['lmin'],lh_config['lmax'],init,bool(lh_config['fit_lensed']))
+                                              lh_config['lmin'],lh_config['lmax'],init,bool(lh_config['fit_lensed']),base)
 
 if __name__ == "__main__":
     jobs = np.arange(n_sims_S4)
