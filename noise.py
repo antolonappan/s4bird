@@ -454,3 +454,58 @@ class NoiseMap_LB_white:
         for i in jobs[mpi.rank::mpi.size]:
             print(f"Making noise map-{i} in processor-{mpi.rank}")
             self.get_maps(i) 
+
+class NoiseMap_LB_Freq:
+    def __init__(self,outfolder,nside,depth_p,freq,nsim=None,seed_file=None):
+        self.outfolder = outfolder
+        self.depth_p = depth_p
+        self.depth_i = depth_p * np.sqrt(2)
+        self.freq = freq
+        self.nside = nside
+        self.n_sim = nsim
+        if mpi.rank == 0:
+            os.makedirs(self.outfolder,exist_ok=True)
+            
+        fname = os.path.join(self.outfolder,'seeds.pkl')
+        
+        if (not os.path.isfile(fname)) and (mpi.rank == 0) and (seed_file == None):
+            seeds = [np.random.randint(11111,99999) for i in range(self.n_sim)]
+            pk.dump(seeds, open(fname,'wb'), protocol=2)
+        mpi.barrier()
+        
+        if seed_file != None:
+            print(f"Simulations use a seed file:{seed_file}")
+            fname = seed_file
+            
+        self.seeds = pk.load(open(fname,'rb'))
+    
+    def get_maps_v(self,idx,i):
+        fname = os.path.join(self.outfolder,f"noiseonly_{idx}_{int(self.freq[i])}.fits")
+        if os.path.isfile(fname):
+            return hp.read_map(fname,(0,1,2))
+        else:
+            n_pix = hp.nside2npix(self.nside)
+            np.random.seed(self.seeds[idx]+i)
+            res = np.random.normal(size=(n_pix, 3))
+            depth = np.stack((self.depth_i[i], self.depth_p[i], self.depth_p[i]))
+            depth *= u.arcmin * u.uK_CMB
+            depth = depth.to(
+                getattr(u, 'uK_CMB') * u.arcmin,
+                equivalencies=u.cmb_equivalencies(self.freq[i] * u.GHz))
+            res *= depth.value / hp.nside2resol(self.nside, True)
+            hp.write_map(fname,res.T)
+            return  res.T
+    
+    def get_maps(self,idx):
+        maps = []
+        for i in range(len(self.freq)):
+            print(i)
+            maps.append(self.get_maps_v(idx,i))
+        return maps
+            
+    
+    def run_job(self):
+        jobs = np.arange(self.n_sim)
+        for i in jobs[mpi.rank::mpi.size]:
+            print(f"Making noise map-{i} in processor-{mpi.rank}")
+            self.get_maps(i) 

@@ -18,10 +18,12 @@ conda activate PC
 
 cd /global/u2/l/lonappan/workspace/S4bird
 
-export ini=cmbs4.ini
+export ini=litebird_s4mask.ini
 
 #15 min
 #mpirun -np 100 python libparam.py $ini -delens
 
 #10 min
-mpirun -np 100 python libparam.py $ini -cl 
+#mpirun -np 100 python libparam.py $ini -cl 
+
+mpirun -np 100 python libparam.py $ini -lh 

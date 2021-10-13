@@ -14,7 +14,7 @@ from plancklens.helpers import mpi
 from delens import Delensing, Pseudo_cl, Efficency
 import toml
 
-from likelihood import LH_simple, LH_smith, LH_HL
+from likelihood import LH_HL,LH_simple,SampleCov
 
 
 try:
@@ -26,6 +26,7 @@ try:
     parser.add_argument('-dd', dest='dd', action='store_true', help='perform dd qlms')
     parser.add_argument('-delens', dest='delens', action='store_true', help='do Delensing')
     parser.add_argument('-cl', dest='cl', action='store_true', help='perform psuedo cls')
+    parser.add_argument('-lh', dest='lh', action='store_true', help='run mcmc')
     args = parser.parse_args()
     ini = args.inifile[0]
 except:
@@ -145,15 +146,23 @@ bias_file = os.path.join(pathbase,'GS','Efficency','bias.pkl') if bool(eff_confi
 
 eff_lib = Efficency(eff_path,pseudocl_lib,n_sims,cl_len['bb'],bool(eff_config['bias_do']),bias_file)
 
+cov_bias_file = os.path.join(pathbase,'RS','Likelihood','Covariance','cov_bias.pkl') 
+
 if bool(eff_config['save_bias']) and bool(map_config['do_GS']):
     eff_lib.save_bias()
 
 
 lh_path = os.path.join(path_final,lh_config['folder'])
 if lh_config['do']:
+    cov_lib = SampleCov(os.path.join(lh_path,'Covariance'),eff_lib,512,10,
+                        lh_config['lmin'],lh_config['lmax'],bool(lh_config['include_bias']),
+                        bool(map_config['do_GS']),cov_bias_file)
     init = [lh_config['r'],lh_config['Alens']]
-    lh_lib = locals()[f"LH_{lh_config['model']}"](lh_path,eff_lib,lh_config['nsamples'],cl_len['bb'],nlev_p,map_config['beam'],
-                                              lh_config['lmin'],lh_config['lmax'],init,bool(lh_config['fit_lensed']),base)
+    lh_lib = locals()[f"LH_{lh_config['model']}"](lh_path,eff_lib,cov_lib,lh_config['nsamples'],
+                                                  cl_len['bb'],nlev_p,map_config['beam'],lh_config['lmin'],
+                                                  lh_config['lmax'],init,bool(lh_config['fit_lensed']),
+                                                  base,bool(lh_config['fix_alens']),bool(lh_config['cache']),
+                                                  bool(lh_config['use_diag']))
 
 
 if __name__ == "__main__":
@@ -183,9 +192,17 @@ if __name__ == "__main__":
             del QU
     
     if args.cl:
-         for i in jobs[mpi.rank::mpi.size]:
+        for i in jobs[mpi.rank::mpi.size]:
             print(f"Pure B-Mode of  map-{i} in Processor-{mpi.rank}")
             cl = pseudocl_lib.get_lensed_cl(i)
             del cl
             cl = pseudocl_lib.get_delensed_cl(i)
             del cl
+    
+    if args.lh:
+        for i in jobs[mpi.rank::mpi.size]:
+            print(f"Running MCMC on map-{i} in Processor-{mpi.rank}")
+            r = lh_lib.sigma_r(i)
+            
+            
+        

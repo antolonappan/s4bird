@@ -18,7 +18,7 @@ conda activate PC
 
 cd /global/u2/l/lonappan/workspace/S4bird
 
-export ini=cmbs4.ini
+export ini=cmbs4LB.ini
 
 #1hr 20 mins
 #mpirun -np 100 python map.py $ini -map_lensed
