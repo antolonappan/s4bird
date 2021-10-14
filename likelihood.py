@@ -9,7 +9,26 @@ import os
 import healpy as hp
 import scipy.optimize as opt
 from plancklens.helpers import mpi
-
+from sklearn.neighbors import KernelDensity
+from scipy.interpolate import interp1d
+from scipy.ndimage import gaussian_filter
+import seaborn as sns
+import pandas as pd
+from tqdm import tqdm 
+from getdist import plots, MCSamples
+from contextlib import contextmanager
+import sys
+@contextmanager
+def suppress_stdout():
+    # Borrowed from
+    # https://thesmithfam.org/blog/2012/10/25/temporarily-suppress-console-output-in-python/
+    with open(os.devnull, "w") as devnull:
+        old_stdout = sys.stdout
+        sys.stdout = devnull
+        try:
+            yield
+        finally:
+            sys.stdout = old_stdout
 
 class cosmology:
     
@@ -77,8 +96,8 @@ class cosmology:
 
 class LH_base:
     
-    def __init__(self,lib_dir,eff_lib,nsamples,cl_len,nlev_p,beam,lmin,lmax,init,fit_lensed):
-        ini = '/project/projectdirs/litebird/simulations/S4BIRD/CAMB/CAMB.ini'
+    def __init__(self,lib_dir,eff_lib,cov_lib,nsamples,cl_len,nlev_p,beam,lmin,lmax,init,fit_lensed,fix_alens,cache):
+        ini = '/project/projectdirs/litebird/simulations/maps/lensing_project_paper/S4BIRD/CAMB/CAMB.ini'
         self.lib_dir = lib_dir
         if mpi.rank == 0:
             os.makedirs(self.lib_dir,exist_ok=True)
@@ -90,167 +109,384 @@ class LH_base:
         self.beam = self.cosmo.get_beam(beam)
         self.noise = self.cosmo.get_noise(nlev_p)
         self.fit_lensed = fit_lensed
+        self.fix_alens = fix_alens
+        self.cache = cache
         
         
         len_m,len_s,del_m,del_s = eff_lib.get_stat
-        bias = eff_lib.bias
+        self.bias = eff_lib.bias
         bias_s = eff_lib.bias_std
         self.init = [float(init[0]),float(init[1])]
         
         self.select = np.where((self.cosmo.ell >= lmin)& (self.cosmo.ell <= lmax))[0]
+        
+        self.cov_lib = cov_lib
+        self.use_bias = self.cov_lib.include_bias
 
         if fit_lensed:
-            print('Fitting Lensed spectra')
-            self.mean = len_m
-            self.std = len_s
+            print(f"Fitting Lensed spectra between l={lmin} and l={lmax}")
+            self.mean = eff_lib.lib_pcl.get_spectra('lensed',0,99)
         else:
-            print('Fitting Delensed spectra')
-            self.mean = del_m - bias
-            self.std = np.sqrt(del_s**2 + bias_s**2)
+            print(f"Fitting Delensed spectra between l={lmin} and l={lmax}")
+            self.mean = eff_lib.lib_pcl.get_spectra('delensed',0,99)
         
         self.name = None
+        
+        self.ALENS = None
         
     def chi_sq(self,theta):
         pass
     
-    def initial_opt(self):
-        return opt.minimize(self.chi_sq, self.init)
+    def initial_opt(self,i):
+        for alens in tqdm(np.linspace(0,1,11)[::-1],desc='Finding Maximum Likelihood Value',unit='guess'):
+            #with suppress_stdout():
+            swap = False
+            if self.fix_alens:
+                swap = True
+                self.fix_alens = False
+                
+            res = opt.minimize(self.chi_sq, [0.0,alens],args=(i))
+            if np.isnan(res['fun']):
+                pass
+            else:
+                if swap:
+                    self.fix_alens = True
+                return res
         
     def cl_theory(self,r,Alens):
         th = (r * self.tensor) + (Alens * self.lensing)
-        return th*self.beam**2 + self.noise
-    
+        th = th*self.beam**2 + self.noise
+        return th
 
     def log_prior(self,theta):
-        r,Alens= theta
-        if  -0.5 < r < 0.5 and 0 < Alens < 1.5:
-            return 0.0
-        return -np.inf
+        if self.fix_alens:
+            r = theta
+            if  -0.5 < r < 0.5:
+                return 0.0
+            return -np.inf
+        else:
+            r,Alens= theta
+            if  -0.5 < r < 0.5 and 0 < Alens < 1.5:
+                return 0.0
+            return -np.inf
 
-    def log_probability(self,theta):
+    def log_probability(self,theta,i):
         lp = self.log_prior(theta)
         if not np.isfinite(lp):
             return -np.inf
-        return lp  -.5*self.chi_sq(theta)
+        return lp  -.5*self.chi_sq(theta,i)
 
-    def posterior(self):
-        fname = os.path.join(self.lib_dir,f"posterior_{self.name}_{self.nsamples}_L{int(self.fit_lensed)}S_{self.select[0]}_{self.select[-1]}.pkl")
-        if not os.path.isfile(fname):
-            #res = self.initial_opt()
-            pos = np.array(self.init) + 1e-4 * np.random.randn(100, 2)
+    def posterior(self,i):
+        fname_sub = "" if self.fit_lensed else f"_{self.use_bias}" 
+        fname = os.path.join(self.lib_dir,f"posterior_sim{i}_{self.name}_{self.nsamples}_L{int(self.fit_lensed)}S_{self.select[0]}_{self.select[-1]}_{self.fix_alens}{fname_sub}.pkl")
+        if os.path.isfile(fname) and self.cache:
+            return pk.load(open(fname,'rb'))
+        else:
+            res = self.initial_opt(i)['x']
+            if self.fit_lensed:
+                self.ALENS = 1
+            else:
+                self.ALENS = res[-1]
+            print(f"Setting Alens to {self.ALENS}")
+            if self.fix_alens:
+                pos = np.array([res[0]]) + 1e-4 * np.random.randn(100, 1)
+            else:
+                pos = np.array(res) + 1e-4 * np.random.randn(100, 2)
             nwalkers, ndim = pos.shape
-            sampler = emcee.EnsembleSampler(nwalkers, ndim, self.log_probability)
+            sampler = emcee.EnsembleSampler(nwalkers, ndim, self.log_probability,kwargs={'i':i})
             sampler.run_mcmc(pos, self.nsamples,progress=True)
             flat_samples = sampler.get_chain(discard=100, thin=15, flat=True)
             pk.dump(flat_samples, open(fname,'wb'),protocol=2)
             return flat_samples
-        else:
-            return pk.load(open(fname,'rb'))
+
+            
     
-    def sigma_r(self):
-        samples = self.posterior()
-        r_samp = np.sort(samples[:,0])
+    def sigma_r(self,i):
+        samples = self.posterior(i)
+        if self.fix_alens:
+            r_samp = np.sort(samples)
+        else:
+            r_samp = np.sort(samples[:,0])
         r_pos = r_samp[r_samp>0]
         return f"{r_pos[int(len(r_pos)*.683)]:.2e}"
     
-    def plot_posterior(self):
-        fname = os.path.join(self.lib_dir,f"posterior_{self.name}_{self.nsamples}_L{int(self.fit_lensed)}S_{self.select[0]}_{self.select[-1]}.png")
-        labels = ["r","Alens"]
-        flat_samples = self.posterior()
+    def plot_posterior(self,i,filename=None):
+            
+        if self.fix_alens:
+            labels = ["r"]
+        else:
+            labels = ["r","Alens"]
+        flat_samples = self.posterior(i)
         plt.figure(figsize=(8,8))
-        fig = corner.corner(flat_samples, labels=labels,truths=[0,0])
-        if not os.path.isfile(fname):
+        fig = corner.corner(flat_samples, labels=labels,truths=[0] if self.fix_alens else [0,0])
+            
+    def get_stat(self,i):
+        samples = self.posterior(i)
+        if self.fix_alens:
+            labels = ["r"]
+        else:
+            labels = ["r","A_{lens}"]
+        
+        return ParamStat(samples,labels).getTitle()
+    
+    def sigma_r_array(self):
+        r = []
+        for i in range(100):
+            r.append(self.sigma_r(i))
+        return np.array(r).astype(float)
+    def plot_hist(self,savefig=False):
+        fname = os.path.join(self.lib_dir,f"L{int(self.fit_lensed)}_C{int(self.use_bias)}.png")
+        r = self.sigma_r_array()
+        plt.figure(figsize=(8,8))
+        sns.distplot(r,hist=True,kde=True,bins=20)
+        pdf, pr = np.histogram(r,bins=50)
+        s = np.where(pdf == np.max(pdf))[0][0]
+        plt.axvline(pr[s],label=f"Mode = {pr[s]:.2e}",c='k')
+        plt.axvline(np.mean(r), label=f"Mean = {np.mean(r):.2e}",c='b')
+        plt.axvline(np.median(r), label=f"Median = {np.median(r):.2e}",c='r')
+        plt.legend(fontsize=20)
+        if savefig:
             plt.savefig(fname,bbox_inches='tight')
-
+            
+    def splitter(self,chuma):
+        first = chuma.split('=')[-1]
+        second = first.split('\pm')
+        if len(second) < 2:
+            second = second[0].split('}_{-')[0].split('^{+')
+        return second
+            
     
+    def plot_stat(self,bins=10,savefig=False):
+        fname = os.path.join(self.lib_dir,f"Stat_L{int(self.fit_lensed)}_C{int(self.use_bias)}.png")
+        fname2 = os.path.join(self.lib_dir,f"Stat_L{int(self.fit_lensed)}_C{int(self.use_bias)}.pkl")
+        name = ['r','alens']
+        label = ['r','A_{lens}']
+        samples = []
+        if not os.path.isfile(fname2):
+            r,alens,sigma_r = [],[],[]
+            for i in tqdm(range(100),desc='Plotting posteriors',unit='simulations'):
+                with suppress_stdout():
+                    samps = MCSamples(samples=self.posterior(i),names = name, labels = label)
+                    samples.append(samps)
+                    r_text = self.splitter(samps.getInlineLatex('r',limit=1,err_sig_figs=5))
+                    a_text = self.splitter(samps.getInlineLatex('alens',limit=1,err_sig_figs=5))
+
+                    r.append(float(r_text[0]))
+                    alens.append(float(a_text[0]))
+                    sigma_r.append(float(r_text[-1]))
+
+            pk.dump((r,alens,sigma_r),open(fname2,'wb'))
+        else:
+            r,alens,sigma_r = pk.load(open(fname2,'rb'))
+            
+        fig, axs = plt.subplots(2, 2, figsize=(8, 8))
+        axs[1,0].hist(r,bins=bins,density=True,label=f"Mean = {np.mean(r):.2e}")
+        axs[1,0].set_xlabel('$r$')
+        axs[1,0].legend()
+        axs[0,1].hist(alens,bins=bins,density=True,label=f"Mean = {np.mean(alens):.2f}")
+        axs[0,1].set_xlabel('$A_{lens}$')
+        axs[0,1].legend()
+        axs[0,0].hist(sigma_r,bins=bins,density=True,label=f"Mean = {np.mean(sigma_r):.2e}")
+        axs[0,0].set_xlabel("$\sigma_r$")
+        axs[0,0].legend()
+        axs[1,1].hist2d(r,alens)
+        axs[1,1].set_xlabel('$r$')
+        axs[1,1].set_ylabel('$A_{lens}$')
+        if savefig:
+            plt.savefig(fname,bbox_inches='tight')
+        
+        
+    
+        
 class LH_simple(LH_base):
-    
-    def __init__(self,lib_dir,eff_lib,nsamples,cl_len,nlev_p,beam,lmin,lmax,init,fit_lensed=False):
-        super().__init__(lib_dir,eff_lib,nsamples,cl_len,nlev_p,beam,lmin,lmax,init,fit_lensed)
-        print('Likelihood: Simple')
+    def __init__(self,lib_dir,eff_lib,cov_lib,nsamples,cl_len,nlev_p,beam,lmin,lmax,init,fit_lensed,basename,fix_alens,cache,use_diag):
+        super().__init__(lib_dir,eff_lib,cov_lib,nsamples,cl_len,nlev_p,beam,lmin,lmax,init,fit_lensed,fix_alens,cache)
+        print('Likelihood: simple')
         self.name = 'simple'
-    
-    def chi_sq(self,theta):
-        r,Alens = theta
-        th = self.cl_theory(r,Alens)
-        return np.sum(((self.mean - th)**2/self.std**2)[self.select])
-    
-class LH_smith(LH_base):
-    
-    def __init__(self,lib_dir,eff_lib,nsamples,cl_len,nlev_p,beam,lmin,lmax,init,fit_lensed=False):
-        super().__init__(lib_dir,eff_lib,nsamples,cl_len,nlev_p,beam,lmin,lmax,init,fit_lensed)
-        print('Likelihood: Smith')
-        self.name = 'smith'
-    
-    def chi_sq(self,theta):
-        alpha = -1
-        r,Alens = theta
-        th = self.cl_theory(r,Alens)
-        l = self.cosmo.ell
-        _1 = (2*l) + 1
-        _a = (2*l) + alpha
-        _f = 9/2
-        _2 = ((_1)/(_a))**(1/3.)
-        
-        first = _1*_f*_2
-        second = ((self.mean/th)**(1/3.) -_2)**2
-        third = (1-alpha)*np.log(th)
-        
-        chi = 10*(first*second) + third
-        
-        return  np.sum(chi[self.select])
 
-
-class LH_HL(LH_base):
-    def __init__(self,lib_dir,eff_lib,nsamples,cl_len,nlev_p,beam,lmin,lmax,init,fit_lensed=False,basename=None):
-        super().__init__(lib_dir,eff_lib,nsamples,cl_len,nlev_p,beam,lmin,lmax,init,fit_lensed)
-        print('Likelihood: HL')
-        self.name = 'HL'
-        self.fileselector_del = {'LiteBird':['c_fid.pkl','cov_del.pkl'],
-                           'litebird_cmbs4':['c_fid_s4.pkl','cov_del_s4.pkl'],
-                           'litebird_S4pLB':['c_fid_s4plb.pkl','cov_del_s4plb.pkl']}
-        self.fileselector_len = {'LiteBird':['c_fid_len.pkl','cov_len.pkl'],
-                           'litebird_cmbs4':['c_fid_len_s4.pkl','cov_len_s4.pkl'],
-                           'litebird_S4pLB':['c_fid_len_s4.pkl','cov_len_s4.pkl']}        
         
-        if basename is None:
-            print(f"Likelihood {self.name} requires basename")
-            raise AttributeError
-        if basename not in list(self.fileselector_len.keys()):
-            raise FileNotFoundError
+        self.use_diag = use_diag
         
         if self.fit_lensed:
-            self.fid, self.cov = self.openfile(self.fileselector_len[basename])
+            self.fid = self.cov_lib.lensed_fid
+            cov = self.cov_lib.lensed_fid_cov
         else:
-            self.fid, self.cov = self.openfile(self.fileselector_del[basename])
+            self.fid = self.cov_lib.delensed_fid
+            cov = self.cov_lib.delensed_fid_cov
         
-        
+        if self.use_diag:
+            self.cov = np.zeros(cov.shape)
+            np.fill_diagonal(self.cov,np.diag(cov))
+            print('Likelihood only uses diagonal covariance')
+        else:
+            self.cov = cov
+            
         
         imin,imax = self.select[0],self.select[-1]+1
         self.cov_inv = np.linalg.inv(self.cov)[imin:imax,imin:imax]
-        
-        
     
-    def openfile(self,files):
-        dire = '/global/u2/l/lonappan/workspace/S4bird/Data/'
-        fid = pk.load(open(f"{dire}{files[0]}",'rb'))
-        cov = pk.load(open(f"{dire}{files[1]}",'rb'))
-        return fid, cov
-           
-    def X(self,cl_th):
-        return self.mean/cl_th
+    def vect(self,theta,i):
+        if self.fix_alens:
+            r = theta
+            cl_th = self.cl_theory(r,self.init[1])
+        else:
+            r,alens = theta
+            cl_th = self.cl_theory(r,alens)    
+        return cl_th - self.mean[i]
+        
+    def chi_sq(self,theta,i):
+        vec = self.vect(theta,i)[self.select]
+        l = np.dot(np.dot(vec,self.cov_inv),vec)
+        return  l    
 
-    def G(self,cl_th):
-        x = self.X(cl_th)
+
+
+class LH_HL(LH_base):
+    def __init__(self,lib_dir,eff_lib,cov_lib,nsamples,cl_len,nlev_p,beam,lmin,lmax,init,fit_lensed,basename,fix_alens,cache,use_diag):
+        super().__init__(lib_dir,eff_lib,cov_lib,nsamples,cl_len,nlev_p,beam,lmin,lmax,init,fit_lensed,fix_alens,cache)
+        print('Likelihood: HL')
+        self.name = 'HL'
+
+        
+        self.use_diag = use_diag
+        
+        if self.fit_lensed:
+            self.fid = self.cov_lib.lensed_fid
+            cov = self.cov_lib.lensed_fid_cov
+        else:
+            self.fid = self.cov_lib.delensed_fid
+            cov = self.cov_lib.delensed_fid_cov
+        
+        if self.use_diag:
+            self.cov = np.zeros(cov.shape)
+            np.fill_diagonal(self.cov,np.diag(cov))
+            print('Likelihood only uses diagonal covariance')
+        else:
+            self.cov = cov
+            
+
+        self.cov_inv = np.linalg.inv(self.cov)
+           
+    def X(self,cl_th,i):
+        if self.fit_lensed:
+            return self.mean[i]/cl_th
+        else:
+            return (self.mean[i]-self.bias)/cl_th
+
+    def G(self,cl_th,i):
+        x = self.X(cl_th,i)
         return np.sign(x-1)* np.sqrt(2*(x - np.log(x) - 1))
     
-    def vect(self,theta):
-        r,alens = theta
-        cl_th = self.cl_theory(r,alens)
-        g = self.G(cl_th)
-        return g*self.fid
+    def vect(self,theta,i):
+        if self.fix_alens:
+            r = theta
+            cl_th = self.cl_theory(r,self.ALENS)
+        else:
+            r,alens = theta
+            cl_th = self.cl_theory(r,alens)            
+        g = self.G(cl_th,i)
+        return g[self.select]*self.fid
     
-    def chi_sq(self,theta):
-        vec = self.vect(theta)[self.select]
+    def chi_sq(self,theta,i):
+        vec = self.vect(theta,i)
         l = np.dot(np.dot(vec,self.cov_inv),vec)
         return  l
+    
+    
+class ParamStat:
+    
+    def __init__(self,chains,label,cl=0.682,paded=True,smooth=True):
+        self.chains = chains
+        self.cl = cl
+        self.labels = label
+        self.paded = paded
+        self.smooth = smooth
+        
+    def __get_hist(self,data):
+        hist, edges = np.histogram(data,bins=10000,density=True)
+        edge_centers = 0.5 * (edges[1:]+edges[:-1])
+
+        xs = np.linspace(edge_centers[0], edge_centers[-1], 10000)
+        ys = interp1d(edge_centers, hist, kind="linear")(xs)
+
+        if self.smooth:
+            ys = gaussian_filter(ys,10)
+
+        if self.paded:
+            #padding the data for cut chains
+            n_pad = 1000
+            x_start = xs[0] * np.ones(n_pad)
+            x_end = xs[-1] * np.ones(n_pad)
+            y_start = np.linspace(0, ys[0], n_pad)
+            y_end = np.linspace(ys[-1], 0, n_pad)
+            xs = np.concatenate((x_start, xs, x_end))
+            ys = np.concatenate((y_start, ys, y_end))
+
+        return xs, ys
+
+    def __get_cumlative_pdf(self, data):
+        _, ys = self.__get_hist(data,)
+        cs = ys.cumsum()
+        cs = cs / cs.max()
+        return cs
+    
+    def get_stat(self,data):
+
+        xs, ys = self.__get_hist(data)
+        cs = self.__get_cumlative_pdf(data)
+        startIndex = ys.argmax()
+        maxVal = ys[startIndex]
+        minVal = 0
+        threshold = 0.03
+        x1 = None
+        x2 = None
+        count = 0
+        values = []
+        while x1 is None:
+            mid = (maxVal + minVal) / 2.0
+            count += 1
+
+            if count > 50:
+                raise ValueError("Failed to converge")
+            i1 = startIndex - np.where(ys[:startIndex][::-1] < mid)[0][0]
+            i2 = startIndex + np.where(ys[startIndex:] < mid)[0][0]
+            values.append((cs[i2],cs[i1]))
+            area = cs[i2] - cs[i1]
+            deviation = np.abs(area - self.cl)
+            if deviation < threshold:
+                x1 = xs[i1]
+                x2 = xs[i2]
+            elif area < self.cl:
+                maxVal = mid
+            elif area > self.cl:
+                minVal = mid
+
+        res = [x1, xs[startIndex], x2]
+
+
+        lower, maximum, upper =res
+
+        upper_error = upper - maximum
+        lower_error = maximum - lower
+
+        return upper_error, lower_error, xs[startIndex]
+
+    def __get_tex(self,upper,lower,ml):
+        if f"{upper:.2f}" != f"{lower:.2f}":
+            return f"{ml:.2f}^{{+{upper:.2e}}}_{{-{lower:.2e}}}"
+        else:
+            return f"{ml:.2f} \pm {upper:.2e}"
+
+    def getInlinetex(self,data):
+        upper,lower, ml =self.get_stat(data)
+        return self.__get_tex(upper,lower,ml)
+    
+    def getTitle(self):
+        titles = []
+        for i in range(len(self.labels)):
+            data = self.chains[:,i]
+            if i == 0:
+                data = np.sort(data)
+                data = data[data>0]
+            titles.append(f"${self.labels[i]} = {self.getInlinetex(data)}$" )
+        return titles    

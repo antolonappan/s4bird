@@ -58,10 +58,6 @@ cl_base = fid_config['base']
 
 
 
-
-
-
-
 if args.map_gs:
     gs_base = GaussSim(cl_folder,cl_base,raw_mappath,nside,n_sims)
     gs_base.run_job()

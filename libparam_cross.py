@@ -13,7 +13,8 @@ from simulation import  s4bird_sims_general
 from plancklens.helpers import mpi
 from delens import Delensing, Pseudo_cl, Efficency
 import toml
-from likelihood import LH_simple, LH_smith, LH_HL
+from likelihood import LH_HL,LH_simple
+from covariance import SampleCov
 
 try:
     import argparse
@@ -24,6 +25,7 @@ try:
     parser.add_argument('-dd', dest='dd', action='store_true', help='perform dd qlms')
     parser.add_argument('-delens', dest='delens', action='store_true', help='do Delensing')
     parser.add_argument('-cl', dest='cl', action='store_true', help='perform psuedo cls')
+    parser.add_argument('-lh', dest='lh', action='store_true', help='run mcmc')
     args = parser.parse_args()
     ini = args.inifile[0]
 except:
@@ -168,7 +170,8 @@ else:
     n_sims_S4= map_config['nsims']
     
     TEMP_S4 =  os.path.join(pathbase,qe_config['folder'])
-    sims_S4 = s4bird_sims_general(nside_S4,map_path_LB,map_path_S4,comb_config['weights'],[map_config_LB['beam'],map_config_S4['beam']],map_config['beam'])
+    sims_S4 = s4bird_sims_general(nside_S4,map_path_LB,map_path_S4,comb_config['weights'],
+                                  [map_config_LB['beam'],map_config_S4['beam']],map_config['beam'])
     transf_S4 = sims_S4.fl
 
 
@@ -191,12 +194,14 @@ ivfs_S4   = filt_util.library_ftl(ivfs_raw_S4, lmax_ivf_S4, ftl_S4, fel_S4, fbl_
 
 
 ##################################################################################
-qlms_dd_S4 = qest.library_sepTP(os.path.join(TEMP_S4, 'qlms_dd'), ivfs_S4, ivfs_S4,   cl_len['te'], nside_S4, lmax_qlm=lmax_qlm_S4)
+qlms_dd_S4 = qest.library_sepTP(os.path.join(TEMP_S4, 'qlms_dd'), ivfs_S4, ivfs_S4,   cl_len['te'],
+                                nside_S4, lmax_qlm=lmax_qlm_S4)
 
 nhl_dd_S4 = nhl.nhl_lib_simple(os.path.join(TEMP_S4, 'nhl_dd'), ivfs_S4, cl_weight, lmax_qlm_S4)
 
 qresp_dd_S4 = qresp.resp_lib_simple(os.path.join(TEMP_S4, 'qresp'), lmax_ivf_S4, cl_weight, cl_len,
-                                 {'t': ivfs_S4.get_ftl(), 'e':ivfs_S4.get_fel(), 'b':ivfs_S4.get_fbl()}, lmax_qlm_S4)
+                                 {'t': ivfs_S4.get_ftl(), 'e':ivfs_S4.get_fel(), 'b':ivfs_S4.get_fbl()},
+                                    lmax_qlm_S4)
 #################################################################################
 
 
@@ -206,7 +211,10 @@ delens_path = os.path.join(pathbase, delens_config['folder'])
 
 transfer = transf_LB if bool(delens_config['apply_transf']) else None
 
-delens_lib = Delensing(delens_path,sims_LB,ivfs_raw_LB,qlms_dd_S4,qresp_dd_S4,nhl_dd_S4,n_sims_S4,lmax_qlm_S4,cl_unl['pp'],nside_LB,maskpaths_S4[0],qe_key_S4,transf=transfer,save_template=True,verbose=False)
+delens_lib = Delensing(delens_path,sims_LB,ivfs_raw_LB,qlms_dd_S4,
+                       qresp_dd_S4,nhl_dd_S4,n_sims_S4,lmax_qlm_S4,cl_unl['pp'],
+                       nside_LB,maskpaths_S4[0],qe_key_S4,transf=transfer,
+                       save_template=True,verbose=False)
 
 
 pseudocl_path = os.path.join(pathbase, pseudo_cl_config['folder'])
@@ -227,13 +235,21 @@ eff_lib = Efficency(eff_path,pseudocl_lib,n_sims_S4,cl_len['bb'],bool(eff_config
 
 if bool(eff_config['save_bias']) and bool(map_config['do_GS']):
     eff_lib.save_bias()
+
     
+cov_bias_file = os.path.join(workbase,base,'RS','Likelihood','Covariance','cov_bias.pkl') 
+
 lh_path = os.path.join(pathbase,lh_config['folder'])
 if lh_config['do']:
+    cov_lib = SampleCov(os.path.join(lh_path,'Covariance'),eff_lib,512,10,
+                        lh_config['lmin'],lh_config['lmax'],bool(lh_config['include_bias']),
+                        bool(map_config['do_GS']),cov_bias_file)
     init = [lh_config['r'],lh_config['Alens']]
-    lh_lib = locals()[f"LH_{lh_config['model']}"](lh_path,eff_lib,lh_config['nsamples'],
-                                                  cl_len['bb'],nlev_p_LB,map_config_LB['beam'],
-                                              lh_config['lmin'],lh_config['lmax'],init,bool(lh_config['fit_lensed']),base)
+    lh_lib = locals()[f"LH_{lh_config['model']}"](lh_path,eff_lib,cov_lib,lh_config['nsamples'],
+                                              cl_len['bb'],nlev_p_LB,map_config_LB['beam'],lh_config['lmin'],
+                                              lh_config['lmax'],init,bool(lh_config['fit_lensed']),
+                                              base,bool(lh_config['fix_alens']),bool(lh_config['cache']),
+                                              bool(lh_config['use_diag']))
 
 if __name__ == "__main__":
     jobs = np.arange(n_sims_S4)
@@ -268,3 +284,8 @@ if __name__ == "__main__":
             del cl
             cl = pseudocl_lib.get_delensed_cl(i)
             del cl
+    if args.lh:
+        for i in jobs[mpi.rank::mpi.size]:
+            print(f"Running MCMC on map-{i} in Processor-{mpi.rank}")
+            r = lh_lib.sigma_r(i)
+            

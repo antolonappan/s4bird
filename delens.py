@@ -153,6 +153,7 @@ class Efficency:
         self.fiducial = fiducial
         self.bias_do = bias_do
         self.bias = None
+        self.bias_std = None
         if bias_do:
             assert bias_file != None
             self.bias, self.bias_std = pk.load(open(bias_file,'rb'))
@@ -197,7 +198,7 @@ class Efficency:
         pl.figure(figsize=(8,8))
         pl.errorbar(self.lib_pcl.ell,  cl2dl*len_m, yerr=cl2dl*len_s, fmt='r.', markersize='10', label='Lensed')
         pl.errorbar(self.lib_pcl.ell,  cl2dl*del_m, yerr=cl2dl*del_s, fmt='g.', markersize='10',label='Delensed-biased')
-        pl.errorbar(self.lib_pcl.ell,  cl2dl*(del_m-self.bias), yerr=cl2dl*np.sqrt(del_s**2 + self.bias_std**2), fmt='b.', markersize='10',label='Delensed-debiase')
+        pl.errorbar(self.lib_pcl.ell,  cl2dl*(del_m-self.bias), yerr=cl2dl*np.sqrt(del_s**2 + self.bias_std**2), fmt='b.', markersize='10',label='Delensed-debiased')
         pl.plot(l, ((self.fiducial*fwhm**2) +n)*dl, label='Fiducial')
         pl.xscale('log')
         pl.yscale('log')
@@ -236,7 +237,7 @@ class Efficency:
         return diff,std
     
     
-    def plot_spectrum_difference(self,lmax=500):
+    def plot_spectrum_difference(self,lmax=500,ymin=-3,ymax=1,savefig=False,filename='spectra_difference.png'):
         mean,std = self.spectrum_difference 
         def get_beam(beam):
             b = nmt.NmtBin.from_nside_linear(512,10)
@@ -244,19 +245,23 @@ class Efficency:
             return b.bin_cell(fwhm)
 
         ref = self.lib_pcl.b.bin_cell(self.fiducial[:self.lib_pcl.b.lmax+1])
+        pl.figure(figsize=(8,8))
         pl.errorbar(self.lib_pcl.ell,mean*10**6, yerr=std*10**6, fmt='o')
         pl.plot(self.lib_pcl.ell,-ref*10**6,label='$-C_\ell^{BB}$',c='r')
         pl.plot(np.zeros(lmax+1), c='k',linestyle=':')
-        pl.ylim(-3,1)
+        pl.ylim(ymin,ymax)
         pl.xlim(2,lmax)
         pl.legend(fontsize='15')
         pl.xlabel('$\ell$',fontsize='20')    
         pl.ylabel("$10^6(C_\ell^{del} - C_\ell^{data})$",fontsize='20')
+        if savefig:
+            pl.savefig(filename,bbox_inces='tight')
+        
         
     def fit_efficency(self,lmin=20,lmax=200):
         mean,std = self.spectrum_difference
         x = self.lib_pcl.ell
-        var = (std*10**6)**2
+        var = (std)**2
         
         def get_beam(beam):
             b = nmt.NmtBin.from_nside_linear(512,10)
@@ -275,7 +280,7 @@ class Efficency:
         sel = np.where((x >= lmin)& (x <= lmax))[0]
         def chi_sq(epsilon):
             num = mean[sel] - (epsilon * (0-ref[sel]) )
-            return np.sum((num*10**6)**2 / var[sel])
+            return np.sum((num)**2 / var[sel])
         
         x0 = [.5]
         res = opt.minimize(chi_sq, x0)
