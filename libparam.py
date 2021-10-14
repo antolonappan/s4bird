@@ -14,7 +14,8 @@ from plancklens.helpers import mpi
 from delens import Delensing, Pseudo_cl, Efficency
 import toml
 
-from likelihood import LH_HL,LH_simple,SampleCov
+from likelihood import LH_HL,LH_simple
+from covariance import SampleCov
 
 
 try:
