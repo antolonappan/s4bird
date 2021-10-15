@@ -32,7 +32,7 @@ def suppress_stdout():
 
 class cosmology:
     
-    def __init__(self,lib_dir,nside,binsize,ini,cache):
+    def __init__(self,lib_dir,nside,binsize,ini):
         if mpi.rank == 0:
             os.makedirs(lib_dir,exist_ok=True)
             
@@ -42,13 +42,15 @@ class cosmology:
         self.n_ell = len(self.ell)
         self.dl = self.ell*(self.ell+1)/(2*np.pi)
         self.ini = ini
-        self.cache = cache
 
     def get_spectra(self,r=0):
         fname = os.path.join(self.lib_dir,f"spectra_r{r}.pkl")
-        if os.path.isfile(fname) and self.cache: 
-            print("returning cache")
-            return pk.load(open(fname,'rb'))
+        fname2 = f"/global/u2/l/lonappan/workspace/S4bird/Data/spectra_r{r}.pkl"
+        if os.path.isfile(fname) or os.path.isfile(fname2):
+            try:
+                return pk.load(open(fname2,'rb'))
+            except:
+                return pk.load(open(fname,'rb'))
         else:
             if r == 0:
                 print('Computing Scalar power spectra')
@@ -96,14 +98,14 @@ class cosmology:
 
 class LH_base:
     
-    def __init__(self,lib_dir,eff_lib,cov_lib,nsamples,cl_len,nlev_p,beam,lmin,lmax,init,fit_lensed,fix_alens,cache):
+    def __init__(self,lib_dir,eff_lib,cov_lib,nsamples,cl_len,nlev_p,beam,lmin,lmax,fit_lensed,fix_alens,cache):
         ini = '/project/projectdirs/litebird/simulations/maps/lensing_project_paper/S4BIRD/CAMB/CAMB.ini'
         self.lib_dir = lib_dir
         if mpi.rank == 0:
             os.makedirs(self.lib_dir,exist_ok=True)
         self.nsamples = nsamples
         
-        self.cosmo = cosmology(self.lib_dir,512,10,ini,True)
+        self.cosmo = cosmology(self.lib_dir,512,10,ini)
         self.tensor = self.cosmo.get_bandpower('T',r=1)
         self.lensing = self.cosmo.get_bandpower_cstm(cl_len)
         self.beam = self.cosmo.get_beam(beam)
@@ -116,12 +118,10 @@ class LH_base:
         len_m,len_s,del_m,del_s = eff_lib.get_stat
         self.bias = eff_lib.bias
         bias_s = eff_lib.bias_std
-        self.init = [float(init[0]),float(init[1])]
         
         self.select = np.where((self.cosmo.ell >= lmin)& (self.cosmo.ell <= lmax))[0]
         
         self.cov_lib = cov_lib
-        self.use_bias = self.cov_lib.include_bias
 
         if fit_lensed:
             print(f"Fitting Lensed spectra between l={lmin} and l={lmax}")
@@ -131,12 +131,16 @@ class LH_base:
             self.mean = eff_lib.lib_pcl.get_spectra('delensed',0,99)
         
         self.name = None
-        
         self.ALENS = None
         
-    def chi_sq(self,theta):
+    def chi_sq(self,theta,i):
         pass
+    def chi_sq_r(self,theta,i):
+        return self.chi_sq([0,theta],i)
     
+    def chi_sq_alens(self,theta,i):
+        return self.chi_sq([theta,self.ALENS],i)
+
     def initial_opt(self,i):
         for alens in tqdm(np.linspace(0,1,11)[::-1],desc='Finding Maximum Likelihood Value',unit='guess'):
             #with suppress_stdout():
@@ -144,8 +148,10 @@ class LH_base:
             if self.fix_alens:
                 swap = True
                 self.fix_alens = False
+                res = opt.minimize(self.chi_sq_r, alens,args=(i))
+            else:
+                res = opt.minimize(self.chi_sq,[0.0,alens],args=(i))
                 
-            res = opt.minimize(self.chi_sq, [0.0,alens],args=(i))
             if np.isnan(res['fun']):
                 pass
             else:
@@ -164,6 +170,7 @@ class LH_base:
             if  -0.5 < r < 0.5:
                 return 0.0
             return -np.inf
+        
         else:
             r,Alens= theta
             if  -0.5 < r < 0.5 and 0 < Alens < 1.5:
@@ -177,21 +184,28 @@ class LH_base:
         return lp  -.5*self.chi_sq(theta,i)
 
     def posterior(self,i):
-        fname_sub = "" if self.fit_lensed else f"_{self.use_bias}" 
+        fname_sub = "" if self.fit_lensed else f"_False" 
         fname = os.path.join(self.lib_dir,f"posterior_sim{i}_{self.name}_{self.nsamples}_L{int(self.fit_lensed)}S_{self.select[0]}_{self.select[-1]}_{self.fix_alens}{fname_sub}.pkl")
         if os.path.isfile(fname) and self.cache:
             return pk.load(open(fname,'rb'))
         else:
             res = self.initial_opt(i)['x']
             if self.fit_lensed:
-                self.ALENS = 1
+                self.ALENS = res[0]
             else:
-                self.ALENS = res[-1]
-            print(f"Setting Alens to {self.ALENS}")
+                self.ALENS = res[0]
+            
+
             if self.fix_alens:
-                pos = np.array([res[0]]) + 1e-4 * np.random.randn(100, 1)
+                print(f"Setting Alens to {self.ALENS}")
+                self.fix_alens = False
+                res = opt.minimize(self.chi_sq_alens,0.0,args=(i))['x']
+                self.fix_alens = True
+                    
+                pos = np.array(res) + 1e-4 * np.random.randn(100, 1)
             else:
                 pos = np.array(res) + 1e-4 * np.random.randn(100, 2)
+                
             nwalkers, ndim = pos.shape
             sampler = emcee.EnsembleSampler(nwalkers, ndim, self.log_probability,kwargs={'i':i})
             sampler.run_mcmc(pos, self.nsamples,progress=True)
@@ -234,8 +248,9 @@ class LH_base:
         for i in range(100):
             r.append(self.sigma_r(i))
         return np.array(r).astype(float)
+    
     def plot_hist(self,savefig=False):
-        fname = os.path.join(self.lib_dir,f"L{int(self.fit_lensed)}_C{int(self.use_bias)}.png")
+        fname = os.path.join(self.lib_dir,f"L{int(self.fit_lensed)}.png")
         r = self.sigma_r_array()
         plt.figure(figsize=(8,8))
         sns.distplot(r,hist=True,kde=True,bins=20)
@@ -257,55 +272,101 @@ class LH_base:
             
     
     def plot_stat(self,bins=10,savefig=False):
-        fname = os.path.join(self.lib_dir,f"Stat_L{int(self.fit_lensed)}_C{int(self.use_bias)}.png")
-        fname2 = os.path.join(self.lib_dir,f"Stat_L{int(self.fit_lensed)}_C{int(self.use_bias)}.pkl")
-        name = ['r','alens']
-        label = ['r','A_{lens}']
-        samples = []
-        if not os.path.isfile(fname2):
-            r,alens,sigma_r = [],[],[]
-            for i in tqdm(range(100),desc='Plotting posteriors',unit='simulations'):
-                with suppress_stdout():
-                    samps = MCSamples(samples=self.posterior(i),names = name, labels = label)
-                    samples.append(samps)
-                    r_text = self.splitter(samps.getInlineLatex('r',limit=1,err_sig_figs=5))
-                    a_text = self.splitter(samps.getInlineLatex('alens',limit=1,err_sig_figs=5))
+        if self.fix_alens:
+            to_remove = []
+            for i in range(100):
+                try:
+                    NULL = self.sigma_r(i)
+                except:
+                    to_remove.append(i)
+            print(f"Bad posteriors: {len(to_remove)}")
+            fname = os.path.join(self.lib_dir,f"Stat_FA_L{int(self.fit_lensed)}.png")
+            fname2 = os.path.join(self.lib_dir,f"Stat_FA_L{int(self.fit_lensed)}.pkl")
+            name = ['r']
+            label = ['r']
+            samples = []
+            if not os.path.isfile(fname2):
+                r,sigma_r = [],[]
+                for i in tqdm(range(100),desc='Plotting posteriors',unit='simulations'):
+                    if i in to_remove:
+                        pass
+                    else:
+                        with suppress_stdout():
+                            try:
+                                samps = MCSamples(samples=self.posterior(i),names = name, labels = label)
+                                samples.append(samps)
+                                r_text = self.splitter(samps.getInlineLatex('r',limit=1,err_sig_figs=5))
+                                r.append(float(r_text[0]))
+                                sigma_r.append(float(r_text[-1]))
+                            except:
+                                print(i)
 
-                    r.append(float(r_text[0]))
-                    alens.append(float(a_text[0]))
-                    sigma_r.append(float(r_text[-1]))
-
-            pk.dump((r,alens,sigma_r),open(fname2,'wb'))
-        else:
-            r,alens,sigma_r = pk.load(open(fname2,'rb'))
+                pk.dump((r,sigma_r),open(fname2,'wb'))
+            else:
+                r,sigma_r = pk.load(open(fname2,'rb'))
             
-        fig, axs = plt.subplots(2, 2, figsize=(8, 8))
-        axs[1,0].hist(r,bins=bins,density=True,label=f"Mean = {np.mean(r):.2e}")
-        axs[1,0].set_xlabel('$r$')
-        axs[1,0].legend()
-        axs[0,1].hist(alens,bins=bins,density=True,label=f"Mean = {np.mean(alens):.2f}")
-        axs[0,1].set_xlabel('$A_{lens}$')
-        axs[0,1].legend()
-        axs[0,0].hist(sigma_r,bins=bins,density=True,label=f"Mean = {np.mean(sigma_r):.2e}")
-        axs[0,0].set_xlabel("$\sigma_r$")
-        axs[0,0].legend()
-        axs[1,1].hist2d(r,alens)
-        axs[1,1].set_xlabel('$r$')
-        axs[1,1].set_ylabel('$A_{lens}$')
-        if savefig:
-            plt.savefig(fname,bbox_inches='tight')
+            fig, axs = plt.subplots(2, 1, figsize=(4, 8))
+            axs[0].hist(sigma_r,bins=bins,density=True,label=f"Mean = {np.mean(sigma_r):.2e}")
+            axs[0].set_xlabel("$\sigma_r$")
+            axs[0].legend()
+
+
+            axs[1].hist(r,bins=bins,density=True,label=f"Mean = {np.mean(r):.2e}")
+            axs[1].set_xlabel('$r$')
+            axs[1].legend()
+            if savefig:
+                plt.savefig(fname,bbox_inches='tight')
+
+            
+        else:
+            fname = os.path.join(self.lib_dir,f"Stat_L{int(self.fit_lensed)}.png")
+            fname2 = os.path.join(self.lib_dir,f"Stat_L{int(self.fit_lensed)}.pkl")
+            name = ['r','alens']
+            label = ['r','A_{lens}']
+            samples = []
+            if not os.path.isfile(fname2):
+                r,alens,sigma_r = [],[],[]
+                for i in tqdm(range(100),desc='Plotting posteriors',unit='simulations'):
+                    with suppress_stdout():
+                        samps = MCSamples(samples=self.posterior(i),names = name, labels = label)
+                        samples.append(samps)
+                        r_text = self.splitter(samps.getInlineLatex('r',limit=1,err_sig_figs=5))
+                        a_text = self.splitter(samps.getInlineLatex('alens',limit=1,err_sig_figs=5))
+
+                        r.append(float(r_text[0]))
+                        alens.append(float(a_text[0]))
+                        sigma_r.append(float(r_text[-1]))
+
+                pk.dump((r,alens,sigma_r),open(fname2,'wb'))
+            else:
+                r,alens,sigma_r = pk.load(open(fname2,'rb'))
+
+            fig, axs = plt.subplots(2, 2, figsize=(8, 8))
+            axs[1,0].hist(r,bins=bins,density=True,label=f"Mean = {np.mean(r):.2e}")
+            axs[1,0].set_xlabel('$r$')
+            axs[1,0].legend()
+            axs[0,1].hist(alens,bins=bins,density=True,label=f"Mean = {np.mean(alens):.2f}")
+            axs[0,1].set_xlabel('$A_{lens}$')
+            axs[0,1].legend()
+            axs[0,0].hist(sigma_r,bins=bins,density=True,label=f"Mean = {np.mean(sigma_r):.2e}")
+            axs[0,0].set_xlabel("$\sigma_r$")
+            axs[0,0].legend()
+            axs[1,1].hist2d(r,alens)
+            axs[1,1].set_xlabel('$r$')
+            axs[1,1].set_ylabel('$A_{lens}$')
+            if savefig:
+                plt.savefig(fname,bbox_inches='tight')
         
         
     
         
 class LH_simple(LH_base):
-    def __init__(self,lib_dir,eff_lib,cov_lib,nsamples,cl_len,nlev_p,beam,lmin,lmax,init,fit_lensed,basename,fix_alens,cache,use_diag):
-        super().__init__(lib_dir,eff_lib,cov_lib,nsamples,cl_len,nlev_p,beam,lmin,lmax,init,fit_lensed,fix_alens,cache)
+    def __init__(self,lib_dir,eff_lib,cov_lib,nsamples,cl_len,nlev_p,beam,lmin,lmax,fit_lensed,basename,fix_alens,cache):
+        super().__init__(lib_dir,eff_lib,cov_lib,nsamples,cl_len,nlev_p,beam,lmin,lmax,fit_lensed,fix_alens,cache)
         print('Likelihood: simple')
         self.name = 'simple'
 
         
-        self.use_diag = use_diag
         
         if self.fit_lensed:
             self.fid = self.cov_lib.lensed_fid
@@ -313,13 +374,7 @@ class LH_simple(LH_base):
         else:
             self.fid = self.cov_lib.delensed_fid
             cov = self.cov_lib.delensed_fid_cov
-        
-        if self.use_diag:
-            self.cov = np.zeros(cov.shape)
-            np.fill_diagonal(self.cov,np.diag(cov))
-            print('Likelihood only uses diagonal covariance')
-        else:
-            self.cov = cov
+        self.cov = cov
             
         
         imin,imax = self.select[0],self.select[-1]+1
@@ -328,7 +383,7 @@ class LH_simple(LH_base):
     def vect(self,theta,i):
         if self.fix_alens:
             r = theta
-            cl_th = self.cl_theory(r,self.init[1])
+            cl_th = self.cl_theory(r,self.ALENS)
         else:
             r,alens = theta
             cl_th = self.cl_theory(r,alens)    
@@ -337,18 +392,17 @@ class LH_simple(LH_base):
     def chi_sq(self,theta,i):
         vec = self.vect(theta,i)[self.select]
         l = np.dot(np.dot(vec,self.cov_inv),vec)
-        return  l    
+        return  l
 
 
 
 class LH_HL(LH_base):
-    def __init__(self,lib_dir,eff_lib,cov_lib,nsamples,cl_len,nlev_p,beam,lmin,lmax,init,fit_lensed,basename,fix_alens,cache,use_diag):
-        super().__init__(lib_dir,eff_lib,cov_lib,nsamples,cl_len,nlev_p,beam,lmin,lmax,init,fit_lensed,fix_alens,cache)
+    def __init__(self,lib_dir,eff_lib,cov_lib,nsamples,cl_len,nlev_p,beam,lmin,lmax,fit_lensed,basename,fix_alens,cache):
+        super().__init__(lib_dir,eff_lib,cov_lib,nsamples,cl_len,nlev_p,beam,lmin,lmax,fit_lensed,fix_alens,cache)
         print('Likelihood: HL')
         self.name = 'HL'
 
         
-        self.use_diag = use_diag
         
         if self.fit_lensed:
             self.fid = self.cov_lib.lensed_fid
@@ -357,12 +411,7 @@ class LH_HL(LH_base):
             self.fid = self.cov_lib.delensed_fid
             cov = self.cov_lib.delensed_fid_cov
         
-        if self.use_diag:
-            self.cov = np.zeros(cov.shape)
-            np.fill_diagonal(self.cov,np.diag(cov))
-            print('Likelihood only uses diagonal covariance')
-        else:
-            self.cov = cov
+        self.cov = cov
             
 
         self.cov_inv = np.linalg.inv(self.cov)

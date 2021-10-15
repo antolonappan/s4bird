@@ -147,23 +147,21 @@ bias_file = os.path.join(pathbase,'GS','Efficency','bias.pkl') if bool(eff_confi
 
 eff_lib = Efficency(eff_path,pseudocl_lib,n_sims,cl_len['bb'],bool(eff_config['bias_do']),bias_file)
 
-cov_bias_file = os.path.join(pathbase,'RS','Likelihood','Covariance','cov_bias.pkl') 
+ 
 
 if bool(eff_config['save_bias']) and bool(map_config['do_GS']):
     eff_lib.save_bias()
 
 
-lh_path = os.path.join(path_final,lh_config['folder'])
+lh_path = os.path.join(path_final,f"{lh_config['folder']}_{qe_key}")
+print(lh_path)
 if lh_config['do']:
     cov_lib = SampleCov(os.path.join(lh_path,'Covariance'),eff_lib,512,10,
-                        lh_config['lmin'],lh_config['lmax'],bool(lh_config['include_bias']),
-                        bool(map_config['do_GS']),cov_bias_file)
-    init = [lh_config['r'],lh_config['Alens']]
+                        lh_config['lmin'],lh_config['lmax'])
     lh_lib = locals()[f"LH_{lh_config['model']}"](lh_path,eff_lib,cov_lib,lh_config['nsamples'],
                                                   cl_len['bb'],nlev_p,map_config['beam'],lh_config['lmin'],
-                                                  lh_config['lmax'],init,bool(lh_config['fit_lensed']),
-                                                  base,bool(lh_config['fix_alens']),bool(lh_config['cache']),
-                                                  bool(lh_config['use_diag']))
+                                                  lh_config['lmax'],bool(lh_config['fit_lensed']),
+                                                  base,bool(lh_config['fix_alens']),bool(lh_config['cache']))
 
 
 if __name__ == "__main__":
@@ -203,7 +201,7 @@ if __name__ == "__main__":
     if args.lh:
         for i in jobs[mpi.rank::mpi.size]:
             print(f"Running MCMC on map-{i} in Processor-{mpi.rank}")
-            r = lh_lib.sigma_r(i)
+            pos = lh_lib.posterior(i)
             
             
         

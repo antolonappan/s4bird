@@ -14,11 +14,11 @@
 
 source /global/homes/l/lonappan/.bashrc
 
-conda activate PC
+conda activate PC2
 
 cd /global/u2/l/lonappan/workspace/S4bird
 
-export ini=litebird_s4mask.ini
+export ini=litebird.ini
 
 #15 min
 #mpirun -np 100 python libparam.py $ini -delens
