@@ -441,7 +441,69 @@ class LH_HL(LH_base):
         l = np.dot(np.dot(vec,self.cov_inv),vec)
         return  l
     
+
+class LH_HL_mod(LH_HL):
+    def __init__(self,lib_dir,eff_lib,cov_lib,nsamples,cl_len,nlev_p,beam,lmin,lmax,fit_lensed,basename,fix_alens,cache):
+        self.name = 'HL_mod'
+        super().__init__(lib_dir,eff_lib,cov_lib,nsamples,cl_len,nlev_p,beam,lmin,lmax,fit_lensed,basename,fix_alens,cache)
+        self.fix_alens = True
+        
+        print('Likelihood: HL_mod')
+        
+    def X(self,cl_th,i):
+        if self.fit_lensed:
+            return self.mean[i][self.select]/cl_th
+             
+        else:
+            return (self.mean[i]-self.bias)[self.select]/cl_th
+        
+    def vect(self,theta,i):
+        if self.fix_alens:
+            r = theta
+            cl_th = self.cl_theory(r,self.ALENS)
+        else:
+            r,alens = theta
+            cl_th = self.cl_theory(r,alens)            
+        g = self.G(cl_th,i)
+        return g*self.fid
     
+    def cl_theory(self,r,Alens=None):
+        th = r * self.tensor
+        th = th*self.beam**2 
+        return th[self.select] +self.fid
+    
+    def initial_opt(self,i):
+        res = opt.minimize(self.chi_sq,[0.0],args=(i))
+        return res
+    
+    def posterior(self,i):
+        fname = os.path.join(self.lib_dir,f"posterior_sim{i}_{self.name}_{self.nsamples}_L{int(self.fit_lensed)}S_{self.select[0]}_{self.select[-1]}.pkl")
+        if os.path.isfile(fname) and self.cache:
+            return pk.load(open(fname,'rb'))
+        else:
+            pos = np.array([0]) + 1e-4 * np.random.randn(100, 1)
+                
+            nwalkers, ndim = pos.shape
+            sampler = emcee.EnsembleSampler(nwalkers, ndim, self.log_probability,kwargs={'i':i})
+            sampler.run_mcmc(pos, self.nsamples,progress=True)
+            flat_samples = sampler.get_chain(discard=100, thin=15, flat=True)
+            pk.dump(flat_samples, open(fname,'wb'),protocol=2)
+            return flat_samples
+    def plot_spectra(self,i):
+        if self.fit_lensed:
+            plt.loglog(self.mean[i][self.select],label='data')
+        else:
+            plt.loglog((self.mean[i]-self.bias)[self.select],label='data')
+        plt.loglog(self.cl_theory(0),label='theory')
+        plt.legend()
+        
+    def sigma_r(self,i):
+        with suppress_stdout():
+            samp = MCSamples(samples=self.posterior(i),names=['r'], labels=['r'])
+        return f"{float(self.splitter(samp.getInlineLatex('r',limit=1,err_sig_figs=5))[-1]):.2e}"
+        
+
+        
 class ParamStat:
     
     def __init__(self,chains,label,cl=0.682,paded=True,smooth=True):
