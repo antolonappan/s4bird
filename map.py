@@ -78,9 +78,9 @@ mpi.barrier()
 
 if args.map_lensed:
     cl_path = os.path.join(workbase,'CAMB')
-    lens_file =  "BBSims_lensed_dls.dat"
+    unlen_file =  "BBSims_scal_dls.dat"
     pot_file = "BBSims_lenspotential.dat"
-    cmb_map = CMBLensed(raw_mappath,n_sims,4096,nside,cl_path,lens_file,pot_file)
+    cmb_map = CMBLensed(raw_mappath,n_sims,cl_path,unlen_file,pot_file)
     cmb_map.run_job()
 mpi.barrier()
 

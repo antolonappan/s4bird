@@ -11,6 +11,7 @@ from shutil import copyfile
 import pysm3.units as u
 from helper import clhash,hash_check
 import lenspyx
+from lenspyx.utils import camb_clfile,camb_clfile2
 
 class s4bird_simbase(object):
 
@@ -320,12 +321,12 @@ class CMBLensed:
     It saves seeds, Phi Map and Lensed CMB maps
     
     """
-    def __init__(self,outfolder,nsim,lmax,nside,cl_path,lens_file,pot_file,verbose=False):
+    def __init__(self,outfolder,nsim,cl_path,scal_file,pot_file,verbose=False):
         self.outfolder = outfolder
-        self.cl_len = utils.camb_clfile(os.path.join(cl_path, lens_file))
-        self.cl_unl = utils.camb_clfile(os.path.join(cl_path, pot_file))
-        self.nside = nside
-        self.lmax = lmax
+        self.cl_unl = camb_clfile2(os.path.join(cl_path, scal_file))
+        self.cl_pot = camb_clfile2(os.path.join(cl_path, pot_file))
+        self.nside = 2048
+        self.lmax = 4096
         self.dlmax = 1024
         self.facres = 0
         self.verbose = verbose
@@ -336,14 +337,15 @@ class CMBLensed:
             os.makedirs(os.path.join(self.outfolder,'MASS'),exist_ok=True) #folder for mass
             os.makedirs(os.path.join(self.outfolder,'CMB'),exist_ok=True) #folder for CMB
         
-        self.seeds = self.get_seeds
+        
         
         
         fname = os.path.join(self.outfolder,'seeds.pkl')
         if (not os.path.isfile(fname)) and (mpi.rank == 0):
-            pk.dump(self.seeds, open(fname,'wb'), protocol=2)
-        else:
-            self.seeds = pk.load(open(fname,'rb'))
+            seeds = self.get_seeds
+            pk.dump(seeds, open(fname,'wb'), protocol=2)
+        mpi.barrier()
+        self.seeds = pk.load(open(fname,'rb'))
         
         
         # Here I saves a dictonary with the artibutes of this class and given Cls. 
@@ -360,8 +362,8 @@ class CMBLensed:
         return {'nside':self.nside,
                 'lmax':self.lmax,
                 'nsim':self.nsim,
-                'cl_tt_un': clhash(self.cl_unl['tt']),
-                'cl_tt_le': clhash(self.cl_len['tt']),
+                'cl_ee': clhash(self.cl_unl['ee']),
+                'cl_pp': clhash(self.cl_pot['pp']),
                }
     @property
     def get_seeds(self):
@@ -393,7 +395,7 @@ class CMBLensed:
             return hp.read_alm(fname)
         else:
             np.random.seed(self.seeds[idx])
-            plm = hp.synalm(self.cl_unl['pp'], lmax=self.lmax + self.dlmax, new=True)
+            plm = hp.synalm(self.cl_pot['pp'], lmax=self.lmax + self.dlmax, new=True)
             hp.write_alm(fname,plm)
             self.vprint(f"Phi field cached: {idx}")
             return plm
@@ -408,10 +410,12 @@ class CMBLensed:
     
     def get_unlensed_tlm(self,idx):
         self.vprint(f"Synalm-ing the Unlensed CMB temp: {idx}")
+        np.random.seed(self.seeds[idx]+1)
         return hp.synalm(self.cl_unl['tt'],lmax=self.lmax + self.dlmax,new=True)
 
     def get_unlensed_elm(self,idx):
         self.vprint(f"Synalm-ing the Unlensed CMB pol-E: {idx}")
+        np.random.seed(self.seeds[idx]+1)
         return hp.synalm(self.cl_unl['ee'],lmax=self.lmax + self.dlmax,new=True)
     
     def get_lensed(self,idx):
