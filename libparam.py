@@ -15,7 +15,7 @@ from delens import Delensing, Pseudo_cl, Efficency
 import toml
 
 from likelihood import LH_HL,LH_simple,LH_HL_mod
-from covariance import SampleCov
+from covariance import SampleCov, SampleCOV
 
 
 try:
@@ -116,9 +116,10 @@ ivfs   = filt_util.library_ftl(ivfs_raw, lmax_ivf, ftl, fel, fbl)
 
 qlms_dd = qest.library_sepTP(os.path.join(TEMP, 'qlms_dd'), ivfs, ivfs,   cl_len['te'], nside, lmax_qlm=lmax_qlm)
 
-nhl_dd = nhl.nhl_lib_simple(os.path.join(TEMP, 'nhl_dd'), ivfs, cl_weight, lmax_qlm)
 
-qresp_dd = qresp.resp_lib_simple(os.path.join(TEMP, 'qresp'), lmax_ivf, cl_weight, cl_len,
+nhl_dd = nhl.nhl_lib_simple(os.path.join(TEMP, qe_config['nhl_dir']), ivfs, cl_weight, lmax_qlm)
+
+qresp_dd = qresp.resp_lib_simple(os.path.join(TEMP, qe_config['qresp_dir']), lmax_ivf, cl_weight, cl_len,
                                  {'t': ivfs.get_ftl(), 'e':ivfs.get_fel(), 'b':ivfs.get_fbl()}, lmax_qlm)
 
 delens_path = os.path.join(path_final, delens_config['folder'])
@@ -141,7 +142,7 @@ pseudocl_lib = Pseudo_cl(pseudocl_path,delens_lib,pseudo_cl_config['mask'],beam=
 eff_path = os.path.join(path_final,eff_config['folder'])
 
 
-bias_file = os.path.join(pathbase,'GS','Efficency','bias.pkl') if bool(eff_config['bias_do']) else None
+bias_file = os.path.join(pathbase,'GS','Efficency',f'bias_{qe_key}.pkl') if bool(eff_config['bias_do']) else None
 
     
 
@@ -154,14 +155,20 @@ if bool(eff_config['save_bias']) and bool(map_config['do_GS']):
 
 
 lh_path = os.path.join(path_final,f"{lh_config['folder']}_{qe_key}")
-print(lh_path)
+
+bias_cov_f = os.path.join(pathbase,'GS',f"{lh_config['folder']}_{qe_key}","Covariance",f"bias_cov_{lh_config['lmin']}_{lh_config['lmax']}.pkl")
+
 if lh_config['do']:
-    cov_lib = SampleCov(os.path.join(lh_path,'Covariance'),eff_lib,512,10,
-                        lh_config['lmin'],lh_config['lmax'])
+    #cov_lib = SampleCov(os.path.join(lh_path,'Covariance'),eff_lib,512,10,
+    #                    lh_config['lmin'],lh_config['lmax'],map_config['do_GS'],bias_cov_f)
+    
+    cov_lib = SampleCOV(os.path.join(lh_path,'Covariance'),pathbase,pseudo_cl_config['folder'],
+                        qe_key,n_sims,512,10,lh_config['lmin'],lh_config['lmax'])
     lh_lib = locals()[f"LH_{lh_config['model']}"](lh_path,eff_lib,cov_lib,lh_config['nsamples'],
                                                   cl_len['bb'],nlev_p,map_config['beam'],lh_config['lmin'],
                                                   lh_config['lmax'],bool(lh_config['fit_lensed']),
                                                   base,bool(lh_config['fix_alens']),bool(lh_config['cache']))
+    print(f"Likelihood:{lh_lib.name}")
 
 
 if __name__ == "__main__":
@@ -203,5 +210,3 @@ if __name__ == "__main__":
             print(f"Running MCMC on map-{i} in Processor-{mpi.rank}")
             pos = lh_lib.posterior(i)
             
-            
-        

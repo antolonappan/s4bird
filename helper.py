@@ -1,7 +1,7 @@
 import numpy as np
 import healpy as hp
-from plancklens.helpers import mpi
 import os
+import hashlib
 
 
 class maps2alm:
@@ -26,12 +26,38 @@ class maps2alm:
         for i in jobs[mpi.rank::mpi.size]:
             print(f"Noise alms-{i} in processor-{mpi.rank}")
             self.map2alm(i)
+            
+            
+def clhash(cl, dtype=np.float16):
+    return hashlib.sha1(np.copy(cl.astype(dtype), order='C')).hexdigest()
 
-if __name__ == '__main__':
-    
-    scr = '/project/projectdirs/litebird/simulations/'
-    inpath = os.path.join(scr,'S4BIRD','CMBS4','Noise')
-    outpath = os.path.join(scr,'S4BIRD','CMBS4','NoiseAlm')
+def hash_check(hash1, hash2, ignore=['lib_dir', 'prefix'], keychain=[]):
+    keys1 = hash1.keys()
+    keys2 = hash2.keys()
 
-    m2a = maps2alm(inpath,outpath,'noiseonly',100)
-    m2a.run_job()
+    for key in ignore:
+        if key in keys1: keys1.remove(key)
+        if key in keys2: keys2.remove(key)
+
+    for key in set(keys1).union(set(keys2)):
+        v1 = hash1[key]
+        v2 = hash2[key]
+
+        def hashfail(msg=None):
+            print("ERROR: HASHCHECK FAIL AT KEY = " + ':'.join(keychain + [key]))
+            if msg is not None:
+                print("   " + msg)
+            print("   ", "V1 = ", v1)
+            print("   ", "V2 = ", v2)
+            assert 0
+
+        if type(v1) != type(v2):
+            hashfail('UNEQUAL TYPES')
+        elif type(v2) == dict:
+            hash_check( v1, v2, ignore=ignore, keychain=keychain + [key] )
+        elif type(v1) == np.ndarray:
+            if not np.allclose(v1, v2):
+                hashfail('UNEQUAL ARRAY')
+        else:
+            if not( v1 == v2 ):
+                hashfail('UNEQUAL VALUES')

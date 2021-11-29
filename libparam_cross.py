@@ -14,7 +14,7 @@ from plancklens.helpers import mpi
 from delens import Delensing, Pseudo_cl, Efficency
 import toml
 from likelihood import LH_HL,LH_simple,LH_HL_mod
-from covariance import SampleCov
+from covariance import SampleCov,SampleCOV
 
 try:
     import argparse
@@ -142,6 +142,7 @@ else:
 map_path_S4 = os.path.join(pathbase_S4,'Maps')
 maskpaths_S4 = [map_config_S4['mask']]
 
+
 if not bool(comb_config['do']):
     lmax_ivf_S4 = qe_config_S4['lmax_ivf']
     lmin_ivf_S4 = qe_config_S4['lmin_ivf']  
@@ -197,7 +198,9 @@ ivfs_S4   = filt_util.library_ftl(ivfs_raw_S4, lmax_ivf_S4, ftl_S4, fel_S4, fbl_
 qlms_dd_S4 = qest.library_sepTP(os.path.join(TEMP_S4, 'qlms_dd'), ivfs_S4, ivfs_S4,   cl_len['te'],
                                 nside_S4, lmax_qlm=lmax_qlm_S4)
 
+
 nhl_dd_S4 = nhl.nhl_lib_simple(os.path.join(TEMP_S4, 'nhl_dd'), ivfs_S4, cl_weight, lmax_qlm_S4)
+
 
 qresp_dd_S4 = qresp.resp_lib_simple(os.path.join(TEMP_S4, 'qresp'), lmax_ivf_S4, cl_weight, cl_len,
                                  {'t': ivfs_S4.get_ftl(), 'e':ivfs_S4.get_fel(), 'b':ivfs_S4.get_fbl()},
@@ -210,6 +213,7 @@ qresp_dd_S4 = qresp.resp_lib_simple(os.path.join(TEMP_S4, 'qresp'), lmax_ivf_S4,
 delens_path = os.path.join(pathbase, delens_config['folder'])
 
 transfer = transf_LB if bool(delens_config['apply_transf']) else None
+
 
 delens_lib = Delensing(delens_path,sims_LB,ivfs_raw_LB,qlms_dd_S4,
                        qresp_dd_S4,nhl_dd_S4,n_sims_S4,lmax_qlm_S4,cl_unl['pp'],
@@ -241,8 +245,12 @@ if bool(eff_config['save_bias']) and bool(map_config['do_GS']):
 
 lh_path = os.path.join(pathbase,f"{lh_config['folder']}_{qe_key_LB}")
 if lh_config['do']:
-    cov_lib = SampleCov(os.path.join(lh_path,'Covariance'),eff_lib,512,10,
-                        lh_config['lmin'],lh_config['lmax'])
+    #cov_lib = SampleCov(os.path.join(lh_path,'Covariance'),eff_lib,512,10,
+    #                    lh_config['lmin'],lh_config['lmax'])
+    
+    cov_lib = SampleCOV(os.path.join(lh_path,'Covariance'),os.path.join(workbase,base),pseudo_cl_config['folder'],
+                        qe_key,n_sims_LB,512,10,lh_config['lmin'],lh_config['lmax'])
+    
     lh_lib = locals()[f"LH_{lh_config['model']}"](lh_path,eff_lib,cov_lib,lh_config['nsamples'],
                                               cl_len['bb'],nlev_p_LB,map_config_LB['beam'],lh_config['lmin'],
                                               lh_config['lmax'],bool(lh_config['fit_lensed']),

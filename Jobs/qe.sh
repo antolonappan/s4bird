@@ -14,11 +14,11 @@
 
 source /global/homes/l/lonappan/.bashrc
 
-conda activate PC
+conda activate PC2
 
 cd /global/u2/l/lonappan/workspace/S4bird
 
-export ini=cmbs4LB.ini
+export ini=litebird.ini
 
 
 #1hr 20 mins

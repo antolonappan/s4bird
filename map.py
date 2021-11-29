@@ -1,4 +1,4 @@
-from simulation import GaussSim, SimExperiment, CMBLensed
+from simulation import GaussSim, SimExperiment, CMBLensed, CMBLensed_old
 import os
 import toml
 from plancklens.helpers import mpi
@@ -6,13 +6,14 @@ from plancklens import utils
 import argparse
 from noise import NoiseMap_s4_LAT
 
-ini_dir = '/global/u2/l/lonappan/workspace/S4bird/ini'
+ini_dir = '/global/u2/l/lonappan/workspace/S4bird/ini_new'
 
 
 parser = argparse.ArgumentParser(description='ini')
 parser.add_argument('inifile', type=str, nargs=1)
 parser.add_argument('-map_gs', dest='map_gs',action='store_true',help='Make Gaussian maps')
 parser.add_argument('-map_exp', dest='map_exp',action='store_true',help='Make experiment maps')
+parser.add_argument('-map_lensed_old', dest='map_lensed_old',action='store_true',help='Make Lensed CMB maps')
 parser.add_argument('-map_lensed', dest='map_lensed',action='store_true',help='Make Lensed CMB maps')
 args = parser.parse_args()
 ini = args.inifile[0]
@@ -58,6 +59,8 @@ cl_base = fid_config['base']
 
 
 
+
+
 if args.map_gs:
     gs_base = GaussSim(cl_folder,cl_base,raw_mappath,nside,n_sims)
     gs_base.run_job()
@@ -68,9 +71,18 @@ if args.map_exp:
     exp_map.run_job()
 mpi.barrier()
 
-if args.map_lensed:
-    cmb_map = CMBLensed(raw_mappath,nside,cl_folder,cl_base,n_sims)
+if args.map_lensed_old:
+    cmb_map = CMBLensed_old(raw_mappath,nside,cl_folder,cl_base,n_sims)
     cmb_map.run_job()
 mpi.barrier()
+
+if args.map_lensed:
+    cl_path = os.path.join(workbase,'CAMB')
+    lens_file =  "BBSims_lensed_dls.dat"
+    pot_file = "BBSims_lenspotential.dat"
+    cmb_map = CMBLensed(raw_mappath,n_sims,4096,nside,cl_path,lens_file,pot_file)
+    cmb_map.run_job()
+mpi.barrier()
+
     
 

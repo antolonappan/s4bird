@@ -142,13 +142,14 @@ class Delensing:
             return Q_t, U_t
             
 class Efficency:
-    __slots__ = ["lib_dir","lib_pcl","n_sim","fiducial","bias_do","bias","bias_std"]
+    __slots__ = ["lib_dir","lib_pcl","n_sim","fiducial","bias_do","bias","bias_std","key"]
     def __init__(self,lib_dir,lib_pcl,n_sim,fiducial,bias_do=False,bias_file=None):
         self.lib_dir = lib_dir
         if mpi.rank == 0:
             os.makedirs(self.lib_dir,exist_ok=True)
         
         self.lib_pcl = lib_pcl
+        self.key = self.lib_pcl.delens_lib.key
         self.n_sim = n_sim
         self.fiducial = fiducial
         self.bias_do = bias_do
@@ -160,7 +161,7 @@ class Efficency:
             
             
     def save_bias(self):
-        fname = os.path.join(self.lib_dir,'bias.pkl')
+        fname = os.path.join(self.lib_dir,f"bias_{self.key}.pkl")
         if os.path.isfile(fname):
             print(f"Bias file already exist at {fname}. This file will be overwritted!")
         bias = []
@@ -185,7 +186,7 @@ class Efficency:
                 np.mean(del_spectra,axis=0),
                 np.std(del_spectra,axis=0))
     
-    def plot_stat(self,lmax=50,ymin=None,ymax=10e8,savefig=False,filename='Eff_stat.png'):
+    def plot_stat(self,lmax=50,ymin=None,ymax=10e1,savefig=False,debias=True,filename='Eff_stat.png'):
         
     
         fwhm = hp.gauss_beam(np.radians(30/60.),len(self.fiducial)-1,True)[:,2]
@@ -198,7 +199,8 @@ class Efficency:
         pl.figure(figsize=(8,8))
         pl.errorbar(self.lib_pcl.ell,  cl2dl*len_m, yerr=cl2dl*len_s, fmt='r.', markersize='10', label='Lensed')
         pl.errorbar(self.lib_pcl.ell,  cl2dl*del_m, yerr=cl2dl*del_s, fmt='g.', markersize='10',label='Delensed-biased')
-        pl.errorbar(self.lib_pcl.ell,  cl2dl*(del_m-self.bias), yerr=cl2dl*np.sqrt(del_s**2 + self.bias_std**2), fmt='b.', markersize='10',label='Delensed-debiased')
+        if debias:
+            pl.errorbar(self.lib_pcl.ell,  cl2dl*(del_m-self.bias), yerr=cl2dl*np.sqrt(del_s**2 + self.bias_std**2), fmt='b.', markersize='10',label='Delensed-debiased')
         pl.plot(l, ((self.fiducial*fwhm**2) +n)*dl, label='Fiducial')
         pl.xscale('log')
         pl.yscale('log')
@@ -216,9 +218,9 @@ class Efficency:
     @property
     def spectrum_difference(self):
         if self.bias_do:
-            fname = os.path.join(self.lib_dir,'spectra_diff_w_bias.pkl')
+            fname = os.path.join(self.lib_dir,f"spectra_diff_w_bias_{self.key}.pkl")
         else:
-            fname = os.path.join(self.lib_dir,'spectra_diff_wo_bias.pkl')
+            fname = os.path.join(self.lib_dir,f"spectra_diff_wo_bias_{self.key}.pkl")
     
         if os.path.isfile(fname):
             l,diff,std =  pk.load(open(fname,'rb'))

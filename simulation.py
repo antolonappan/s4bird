@@ -9,7 +9,8 @@ import camb
 import pysm3 as pysm
 from shutil import copyfile
 import pysm3.units as u
-
+from helper import clhash,hash_check
+import lenspyx
 
 class s4bird_simbase(object):
 
@@ -222,7 +223,7 @@ class SimExperiment:
             print(f"Making map-{i} in processor-{mpi.rank}")
             self.make_map(i)
             
-class CMBLensed:
+class CMBLensed_old:
     
     def __init__(self,outfolder,nside,cl_folder,base,n_sim,seed_file=None,prefix='cmbonly_'):
         
@@ -313,4 +314,132 @@ class CMBLensed:
         
         
     
+class CMBLensed:
+    """
+    Lensing class:
+    It saves seeds, Phi Map and Lensed CMB maps
+    
+    """
+    def __init__(self,outfolder,nsim,lmax,nside,cl_path,lens_file,pot_file,verbose=False):
+        self.outfolder = outfolder
+        self.cl_len = utils.camb_clfile(os.path.join(cl_path, lens_file))
+        self.cl_unl = utils.camb_clfile(os.path.join(cl_path, pot_file))
+        self.nside = nside
+        self.lmax = lmax
+        self.dlmax = 1024
+        self.facres = 0
+        self.verbose = verbose
+        self.nsim = nsim
+        
+        if mpi.rank == 0:
+            os.makedirs(self.outfolder,exist_ok=True)
+            os.makedirs(os.path.join(self.outfolder,'MASS'),exist_ok=True) #folder for mass
+            os.makedirs(os.path.join(self.outfolder,'CMB'),exist_ok=True) #folder for CMB
+        
+        self.seeds = self.get_seeds
+        
+        
+        fname = os.path.join(self.outfolder,'seeds.pkl')
+        if (not os.path.isfile(fname)) and (mpi.rank == 0):
+            pk.dump(self.seeds, open(fname,'wb'), protocol=2)
+        else:
+            self.seeds = pk.load(open(fname,'rb'))
+        
+        
+        # Here I saves a dictonary with the artibutes of this class and given Cls. 
+        # So everytime when this instance run it checks for the same setup
+        # If any artribute has changed from the previous run
+        fnhash = os.path.join(self.outfolder, "lensing_sim_hash.pk")
+        if (mpi.rank == 0) and (not os.path.isfile(fnhash)):
+            pk.dump(self.hashdict(), open(fnhash, 'wb'), protocol=2)
+        mpi.barrier()
+        
+        hash_check(pk.load(open(fnhash, 'rb')), self.hashdict())
 
+    def hashdict(self):
+        return {'nside':self.nside,
+                'lmax':self.lmax,
+                'nsim':self.nsim,
+                'cl_tt_un': clhash(self.cl_unl['tt']),
+                'cl_tt_le': clhash(self.cl_len['tt']),
+               }
+    @property
+    def get_seeds(self):
+        """
+        non-repeating seeds
+        """
+        seeds =[]
+        no = 0
+        while no <= self.nsim-1:
+            r = np.random.randint(11111,99999)
+            if r not in seeds:
+                seeds.append(r)
+                no+=1
+        return seeds
+    
+    def vprint(self,string):
+        if self.verbose:
+            print(string)
+                  
+    def get_phi(self,idx):
+        """
+        set a seed
+        generate phi_LM
+        Save the phi
+        """
+        fname = os.path.join(self.outfolder,'MASS',f"phi_sims_{idx:04d}.fits")
+        if os.path.isfile(fname):
+            self.vprint(f"Phi field from cache: {idx}")
+            return hp.read_alm(fname)
+        else:
+            np.random.seed(self.seeds[idx])
+            plm = hp.synalm(self.cl_unl['pp'], lmax=self.lmax + self.dlmax, new=True)
+            hp.write_alm(fname,plm)
+            self.vprint(f"Phi field cached: {idx}")
+            return plm
+        
+    def get_kappa(self,idx):
+        """
+        generate deflection field
+        sqrt(L(L+1)) * \phi_{LM}
+        """
+        der = np.sqrt(np.arange(self.lmax + 1, dtype=float) * np.arange(1, self.lmax + 2))
+        return hp.almxfl(self.get_phi(idx), der)
+    
+    def get_unlensed_tlm(self,idx):
+        self.vprint(f"Synalm-ing the Unlensed CMB temp: {idx}")
+        return hp.synalm(self.cl_unl['tt'],lmax=self.lmax + self.dlmax,new=True)
+
+    def get_unlensed_elm(self,idx):
+        self.vprint(f"Synalm-ing the Unlensed CMB pol-E: {idx}")
+        return hp.synalm(self.cl_unl['ee'],lmax=self.lmax + self.dlmax,new=True)
+    
+    def get_lensed(self,idx):
+        fname = os.path.join(self.outfolder,'CMB',f"cmb_sims_{idx:04d}.fits")
+        if os.path.isfile(fname):
+            self.vprint(f"CMB fields from cache: {idx}")
+            return hp.read_map(fname,(0,1,2),dtype=np.float64)
+        else:
+            dlm = self.get_kappa(idx)
+            Red, Imd = hp.alm2map_spin([dlm, np.zeros_like(dlm)], self.nside, 1, hp.Alm.getlmax(dlm.size))
+            del dlm
+            tlm = self.get_unlensed_tlm(idx)
+            T  = lenspyx.alm2lenmap(tlm, [Red, Imd], self.nside, 
+                                    facres=self.facres, 
+                                    verbose=False)
+            del tlm           
+            elm = self.get_unlensed_elm(idx)
+            Q, U  = lenspyx.alm2lenmap_spin([elm, None],[Red, Imd], 
+                                            self.nside, 2, facres=self.facres,
+                                            verbose=False)
+            del (Red, Imd, elm)
+            hp.write_map(fname,[T,Q,U],dtype=np.float64)
+            self.vprint(f"CMB field cached: {idx}")         
+            return [T,Q,U]
+        
+    def run_job(self):
+        jobs = np.arange(self.nsim)
+        for i in jobs[mpi.rank::mpi.size]:
+            print(f"Lensing map-{i} in processor-{mpi.rank}")
+            NULL = self.get_lensed(i)
+            del NULL

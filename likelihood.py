@@ -18,6 +18,7 @@ from tqdm import tqdm
 from getdist import plots, MCSamples
 from contextlib import contextmanager
 import sys
+import matplotlib.ticker as ticker
 @contextmanager
 def suppress_stdout():
     # Borrowed from
@@ -202,7 +203,7 @@ class LH_base:
                 res = opt.minimize(self.chi_sq_alens,0.0,args=(i))['x']
                 self.fix_alens = True
                     
-                pos = np.array(res) + 1e-4 * np.random.randn(100, 1)
+                pos = np.array([0]) + 1e-4 * np.random.randn(100, 1)
             else:
                 pos = np.array(res) + 1e-4 * np.random.randn(100, 2)
                 
@@ -216,11 +217,12 @@ class LH_base:
             
     
     def sigma_r(self,i):
-        samples = self.posterior(i)
-        if self.fix_alens:
-            r_samp = np.sort(samples)
-        else:
-            r_samp = np.sort(samples[:,0])
+        with suppress_stdout():
+            samp = MCSamples(samples=self.posterior(i),names=['r'], labels=['r'])
+        return f"{float(self.splitter(samp.getInlineLatex('r',limit=1,err_sig_figs=5))[-1]):.2e}"
+    
+    def sigma_r_old(self,samples):
+        r_samp = np.sort(samples)
         r_pos = r_samp[r_samp>0]
         return f"{r_pos[int(len(r_pos)*.683)]:.2e}"
     
@@ -271,7 +273,7 @@ class LH_base:
         return second
             
     
-    def plot_stat(self,bins=10,savefig=False):
+    def plot_stat(self,bw=1,bins=10,savefig=False):
         if self.fix_alens:
             to_remove = []
             for i in range(100):
@@ -305,15 +307,24 @@ class LH_base:
             else:
                 r,sigma_r = pk.load(open(fname2,'rb'))
             
-            fig, axs = plt.subplots(2, 1, figsize=(4, 8))
-            axs[0].hist(sigma_r,bins=bins,density=True,label=f"Mean = {np.mean(sigma_r):.2e}")
-            axs[0].set_xlabel("$\sigma_r$")
-            axs[0].legend()
+            fig, axs = plt.subplots(2, 1, figsize=(5, 10))
+            #sns.kdeplot(sigma_r, ax=axs[0], bw=bw,fill=True)
+            axs[0].hist(sigma_r,bins=10)
+            axs[0].axvline(np.mean(sigma_r),label=f"Mean = {np.mean(sigma_r):.2e}",c='k',ls=':')
+            axs[0].tick_params(labelrotation=45,labelsize=15)
+            axs[0].set_xlabel("$\sigma_r$",fontsize=15)
+            axs[0].legend(loc="lower left",fontsize=15)
 
 
-            axs[1].hist(r,bins=bins,density=True,label=f"Mean = {np.mean(r):.2e}")
-            axs[1].set_xlabel('$r$')
-            axs[1].legend()
+            sr_m = float(self.sigma_r_old(r))
+            #sns.kdeplot(r, ax=axs[1], bw=bw,fill=True)
+            axs[1].hist(r,bins=10)
+            #axs[1].axvline(sr_m,label=f"68% CL = {sr_m:.2e}",c='k',ls=':')
+            #axs[1].axvline(-sr_m,c='k',ls=':')
+            axs[1].tick_params(labelsize=15,labelrotation=45)
+            axs[1].set_xlabel('$r$',fontsize=15)
+            #axs[1].legend(loc="lower left",fontsize=15)
+            plt.subplots_adjust(hspace=.4)
             if savefig:
                 plt.savefig(fname,bbox_inches='tight')
 
@@ -399,7 +410,6 @@ class LH_simple(LH_base):
 class LH_HL(LH_base):
     def __init__(self,lib_dir,eff_lib,cov_lib,nsamples,cl_len,nlev_p,beam,lmin,lmax,fit_lensed,basename,fix_alens,cache):
         super().__init__(lib_dir,eff_lib,cov_lib,nsamples,cl_len,nlev_p,beam,lmin,lmax,fit_lensed,fix_alens,cache)
-        print('Likelihood: HL')
         self.name = 'HL'
 
         
@@ -444,11 +454,9 @@ class LH_HL(LH_base):
 
 class LH_HL_mod(LH_HL):
     def __init__(self,lib_dir,eff_lib,cov_lib,nsamples,cl_len,nlev_p,beam,lmin,lmax,fit_lensed,basename,fix_alens,cache):
-        self.name = 'HL_mod'
         super().__init__(lib_dir,eff_lib,cov_lib,nsamples,cl_len,nlev_p,beam,lmin,lmax,fit_lensed,basename,fix_alens,cache)
         self.fix_alens = True
-        
-        print('Likelihood: HL_mod')
+        self.name = 'HL_mod'
         
     def X(self,cl_th,i):
         if self.fit_lensed:
