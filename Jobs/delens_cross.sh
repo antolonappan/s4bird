@@ -24,6 +24,6 @@ export ini=litebird_w_cmbs4.ini
 #mpirun -np 100 python libparam_cross.py $ini -delens
 
 #10 min
-#mpirun -np 100 python libparam_cross.py $ini -cl 
+mpirun -np 100 python libparam_cross.py $ini -cl 
 
-mpirun -np 100 python libparam_cross.py $ini -lh 
+#mpirun -np 100 python libparam_cross.py $ini -lh 

@@ -408,15 +408,12 @@ class CMBLensed:
         der = np.sqrt(np.arange(self.lmax + 1, dtype=float) * np.arange(1, self.lmax + 2))
         return hp.almxfl(self.get_phi(idx), der)
     
-    def get_unlensed_tlm(self,idx):
+    def get_unlensed_alm(self,idx):
         self.vprint(f"Synalm-ing the Unlensed CMB temp: {idx}")
         np.random.seed(self.seeds[idx]+1)
-        return hp.synalm(self.cl_unl['tt'],lmax=self.lmax + self.dlmax,new=True)
+        Cls = [self.cl_unl['tt'],self.cl_unl['ee'],self.cl_unl['tt']*0,self.cl_unl['te']]
+        return hp.synalm(Cls,lmax=self.lmax + self.dlmax,new=True)
 
-    def get_unlensed_elm(self,idx):
-        self.vprint(f"Synalm-ing the Unlensed CMB pol-E: {idx}")
-        np.random.seed(self.seeds[idx]+1)
-        return hp.synalm(self.cl_unl['ee'],lmax=self.lmax + self.dlmax,new=True)
     
     def get_lensed(self,idx):
         fname = os.path.join(self.outfolder,'CMB',f"cmb_sims_{idx:04d}.fits")
@@ -427,12 +424,12 @@ class CMBLensed:
             dlm = self.get_kappa(idx)
             Red, Imd = hp.alm2map_spin([dlm, np.zeros_like(dlm)], self.nside, 1, hp.Alm.getlmax(dlm.size))
             del dlm
-            tlm = self.get_unlensed_tlm(idx)
+            tlm,elm,blm = self.get_unlensed_alm(idx)
+            del blm
             T  = lenspyx.alm2lenmap(tlm, [Red, Imd], self.nside, 
                                     facres=self.facres, 
                                     verbose=False)
-            del tlm           
-            elm = self.get_unlensed_elm(idx)
+            del tlm
             Q, U  = lenspyx.alm2lenmap_spin([elm, None],[Red, Imd], 
                                             self.nside, 2, facres=self.facres,
                                             verbose=False)
@@ -440,6 +437,7 @@ class CMBLensed:
             hp.write_map(fname,[T,Q,U],dtype=np.float64)
             self.vprint(f"CMB field cached: {idx}")         
             return [T,Q,U]
+        
         
     def run_job(self):
         jobs = np.arange(self.nsim)

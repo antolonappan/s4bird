@@ -374,10 +374,7 @@ class LH_base:
 class LH_simple(LH_base):
     def __init__(self,lib_dir,eff_lib,cov_lib,nsamples,cl_len,nlev_p,beam,lmin,lmax,fit_lensed,basename,fix_alens,cache):
         super().__init__(lib_dir,eff_lib,cov_lib,nsamples,cl_len,nlev_p,beam,lmin,lmax,fit_lensed,fix_alens,cache)
-        print('Likelihood: simple')
         self.name = 'simple'
-
-        
         
         if self.fit_lensed:
             self.fid = self.cov_lib.lensed_fid
@@ -385,26 +382,60 @@ class LH_simple(LH_base):
         else:
             self.fid = self.cov_lib.delensed_fid
             cov = self.cov_lib.delensed_fid_cov
-        self.cov = cov
-            
-        
-        imin,imax = self.select[0],self.select[-1]+1
-        self.cov_inv = np.linalg.inv(self.cov)[imin:imax,imin:imax]
+        self.cov = np.zeros(cov.shape)
+        np.fill_diagonal(self.cov, np.diag(cov))
+        self.cov_inv = np.linalg.inv(cov) 
     
-    def vect(self,theta,i):
-        if self.fix_alens:
-            r = theta
-            cl_th = self.cl_theory(r,self.ALENS)
+    def cl_theory(self,r,alens):
+        th = (r * self.tensor) + alens* self.lensing
+        th = th[self.select]*self.beam[self.select]**2  + self.noise[self.select]
+        return th
+    def log_prior(self,theta):
+        r,alens = theta
+        if  -0.1 < r < 0.1 and 0 < alens <1.5:
+            return 0.0
+        return -np.inf
+    
+    def vect(self,theta):
+        r, alens= theta
+        cl_th = self.cl_theory(r, alens)    
+        return cl_th - self.fid
+    
+    def log_probability(self,theta):
+        lp = self.log_prior(theta)
+        if not np.isfinite(lp):
+            return -np.inf
+        return lp  -.5*self.chi_sq(theta)
+    
+    def posterior(self):
+        fname = os.path.join(self.lib_dir,f"posterior_sim.pkl")
+        if os.path.isfile(fname) and self.cache:
+            return pk.load(open(fname,'rb'))
         else:
-            r,alens = theta
-            cl_th = self.cl_theory(r,alens)    
-        return cl_th - self.mean[i]
+            pos = np.array([0,.5]) + 1e-4 * np.random.randn(100, 2)
+
+                
+            nwalkers, ndim = pos.shape
+            sampler = emcee.EnsembleSampler(nwalkers, ndim, self.log_probability,)
+            sampler.run_mcmc(pos, self.nsamples,progress=True)
+            flat_samples = sampler.get_chain(discard=100, thin=15, flat=True)
+            pk.dump(flat_samples, open(fname,'wb'),protocol=2)
+            return flat_samples
         
-    def chi_sq(self,theta,i):
-        vec = self.vect(theta,i)[self.select]
+    def chi_sq(self,theta):
+        vec = self.vect(theta)
         l = np.dot(np.dot(vec,self.cov_inv),vec)
         return  l
-
+    def plot_posterior(self):
+        labels = ["r","alens"]
+        flat_samples = self.posterior()
+        plt.figure(figsize=(8,8))
+        fig = corner.corner(flat_samples, labels=labels,truths=[0,0])
+        
+    def sigma_r(self):
+        with suppress_stdout():
+            samp = MCSamples(samples=self.posterior(),names=['r',"alens"], labels=['r',"alens"])
+        return f"{float(self.splitter(samp.getInlineLatex('r',limit=1,err_sig_figs=5))[-1]):.2e}"
 
 
 class LH_HL(LH_base):
@@ -421,8 +452,8 @@ class LH_HL(LH_base):
             self.fid = self.cov_lib.delensed_fid
             cov = self.cov_lib.delensed_fid_cov
         
-        self.cov = cov
-            
+        self.cov = np.zeros(cov.shape)
+        np.fill_diagonal(self.cov, np.diag(cov))
 
         self.cov_inv = np.linalg.inv(self.cov)
            

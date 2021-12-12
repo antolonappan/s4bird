@@ -210,18 +210,22 @@ qresp_dd_S4 = qresp.resp_lib_simple(os.path.join(TEMP_S4, 'qresp'), lmax_ivf_S4,
 
 
 
-delens_path = os.path.join(pathbase, delens_config['folder'])
+delens_path = os.path.join(pathbase, f"{delens_config['folder']}_2") if bool(delens_config['use_second']) else os.path.join(pathbase, delens_config['folder'])
 
 transfer = transf_LB if bool(delens_config['apply_transf']) else None
 
+if bool(delens_config['use_second']):
+    delens_lib = Delensing(delens_path,sims_LB,ivfs_raw_S4,qlms_dd_S4,
+                           qresp_dd_S4,nhl_dd_S4,n_sims_S4,lmax_qlm_S4,cl_unl['pp'],
+                           nside_LB,maskpaths_S4[0],qe_key_S4,transf=transfer,
+                           save_template=True,verbose=False)
+else:
+    delens_lib = Delensing(delens_path,sims_LB,ivfs_raw_LB,qlms_dd_S4,
+                           qresp_dd_S4,nhl_dd_S4,n_sims_S4,lmax_qlm_S4,cl_unl['pp'],
+                           nside_LB,maskpaths_S4[0],qe_key_S4,transf=transfer,
+                           save_template=True,verbose=False)
 
-delens_lib = Delensing(delens_path,sims_LB,ivfs_raw_LB,qlms_dd_S4,
-                       qresp_dd_S4,nhl_dd_S4,n_sims_S4,lmax_qlm_S4,cl_unl['pp'],
-                       nside_LB,maskpaths_S4[0],qe_key_S4,transf=transfer,
-                       save_template=True,verbose=False)
-
-
-pseudocl_path = os.path.join(pathbase, pseudo_cl_config['folder'])
+pseudocl_path = os.path.join(pathbase, f"{pseudo_cl_config['folder']}_2")  if bool(delens_config['use_second']) else os.path.join(pathbase, pseudo_cl_config['folder'])
 
 if pseudo_cl_config['beam'] == 'None':
     beam_pcl = None
@@ -231,9 +235,11 @@ else:
 pseudocl_lib = Pseudo_cl(pseudocl_path,delens_lib,pseudo_cl_config['mask'],beam=beam_pcl)
 
 
-eff_path = os.path.join(pathbase,eff_config['folder'])
+eff_path = os.path.join(pathbase,f"{eff_config['folder']}_2") if bool(delens_config['use_second']) else os.path.join(pathbase,eff_config['folder'])
 
-bias_file = os.path.join(workbase,base,'GS','Efficency','bias.pkl') if bool(eff_config['bias_do']) else None
+ef = "Efficency_2"  if bool(delens_config['use_second']) else "Efficency"
+
+bias_file = os.path.join(workbase,base,'GS',ef,f'bias_{qe_key}.pkl') if bool(eff_config['bias_do']) else None
 
 eff_lib = Efficency(eff_path,pseudocl_lib,n_sims_S4,cl_len['bb'],bool(eff_config['bias_do']),bias_file)
 
@@ -243,7 +249,7 @@ if bool(eff_config['save_bias']) and bool(map_config['do_GS']):
     
 
 
-lh_path = os.path.join(pathbase,f"{lh_config['folder']}_{qe_key_LB}")
+lh_path = os.path.join(pathbase,f"{lh_config['folder']}_{qe_key_LB}_2") if bool(delens_config['use_second']) else os.path.join(pathbase,f"{lh_config['folder']}_{qe_key_LB}")
 if lh_config['do']:
     #cov_lib = SampleCov(os.path.join(lh_path,'Covariance'),eff_lib,512,10,
     #                    lh_config['lmin'],lh_config['lmax'])
@@ -293,4 +299,7 @@ if __name__ == "__main__":
         for i in jobs[mpi.rank::mpi.size]:
             print(f"Running MCMC on map-{i} in Processor-{mpi.rank}")
             r = lh_lib.posterior(i)
+            
+
+
             
