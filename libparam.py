@@ -13,7 +13,7 @@ from simulation import  s4bird_sims_general
 from plancklens.helpers import mpi
 from delens import Delensing, Pseudo_cl, Efficency
 import toml
-
+from lenspyx.utils import camb_clfile2
 from likelihood import LH_HL,LH_simple,LH_HL_mod
 from covariance import SampleCov, SampleCOV
 
@@ -31,10 +31,10 @@ try:
     args = parser.parse_args()
     ini = args.inifile[0]
 except:
-    ini = toml.load('/global/u2/l/lonappan/workspace/S4bird/ini/libparam.ini')['file']
+    ini = toml.load('/global/u2/l/lonappan/workspace/S4bird/ini_new/libparam.ini')['file']
 
 
-ini_dir = '/global/u2/l/lonappan/workspace/S4bird/ini'
+ini_dir = '/global/u2/l/lonappan/workspace/S4bird/ini_new'
 ini_file = os.path.join(ini_dir,ini)
 
 config = toml.load(ini_file)
@@ -61,16 +61,16 @@ nlev_p = map_config['nlev_p']
 nside = map_config['nside']
 n_sims = map_config['nsims']
 maskpaths = [map_config['mask']]
+sim_set = int(map_config['set'])
 
 # FILE CONFIG
 base = file_config['base_name']
 workbase = file_config['base_folder']
 pathbase = os.path.join(workbase,base)
 
-if bool(map_config['do_GS']):
-    path_final = os.path.join(pathbase,'GS')
-else:
-    path_final = os.path.join(pathbase,'RS')        
+
+
+path_final = os.path.join(pathbase,f"SIM_SET{sim_set}")        
 map_path = os.path.join(path_final,'Maps')
 
 # CL CONFIG
@@ -83,10 +83,10 @@ TEMP =  os.path.join(path_final,qe_config['folder'])
 
 transf = hp.gauss_beam( map_config['beam']/ 60. / 180. * np.pi, lmax=lmax_ivf)
 
-cl_unl_fname = os.path.join(cl_folder,f"{cl_base}_lenspotentialCls.dat")
-cl_len_fname = os.path.join(cl_folder,f"{cl_base}_lensedCls.dat")
+cl_unl_fname = os.path.join(cl_folder,f"{cl_base}_scal_dls.dat")
+cl_len_fname = os.path.join(cl_folder,f"{cl_base}_lensed_dls.dat")
 
-cl_unl = utils.camb_clfile(cl_unl_fname)
+cl_unl = camb_clfile2(cl_unl_fname)
 cl_len = utils.camb_clfile(cl_len_fname)
 cl_weight = utils.camb_clfile(cl_len_fname)
 cl_weight['bb'] *= 0.
@@ -138,7 +138,7 @@ else:
     
 pseudocl_lib = Pseudo_cl(pseudocl_path,delens_lib,pseudo_cl_config['mask'],beam=beam_pcl)
 
-
+"""
 eff_path = os.path.join(path_final,eff_config['folder'])
 
 
@@ -170,7 +170,7 @@ if lh_config['do']:
                                                   base,bool(lh_config['fix_alens']),bool(lh_config['cache']))
     print(f"Likelihood:{lh_lib.name}")
 
-
+"""
 if __name__ == "__main__":
     jobs = np.arange(n_sims)
     if args.ivt:

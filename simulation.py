@@ -46,7 +46,7 @@ class s4bird_simbase(object):
         return Q ,U
 
 class s4bird_sims_general(s4bird_simbase):
-    def __init__(self,nside,filebase,filebase2=None,weights=None,beam_de=None,beam_con=None,prefix="cmbonly_"):
+    def __init__(self,nside,filebase,filebase2=None,weights=None,beam_de=None,beam_con=None,prefix="exp_sims_"):
         super().__init__(nside)
         self.filebase = filebase
         self.filebase2 = filebase2
@@ -83,8 +83,8 @@ class s4bird_sims_general(s4bird_simbase):
             
             
     def get_combined_field(self,idx,hdu):
-        alm1 = hp.read_alm(os.path.join(self.filebase,f"{self.prefix}{idx}.fits"), hdu=hdu)
-        alm2 = hp.read_alm(os.path.join(self.filebase2,f"{self.prefix}{idx}.fits"), hdu=hdu)
+        alm1 = hp.read_alm(os.path.join(self.filebase,f"{self.prefix}{idx:04d}.fits"), hdu=hdu)
+        alm2 = hp.read_alm(os.path.join(self.filebase2,f"{self.prefix}{idx:04d}.fits"), hdu=hdu)
         if hdu ==1:
             alm = hp.almxfl(hp.almxfl(alm1,self.w_lb_t) + hp.almxfl(alm2,self.w_s4_t), self.fl)
         else:
@@ -97,20 +97,20 @@ class s4bird_sims_general(s4bird_simbase):
     
     def get_sim_tlm(self,idx):
         if not self.combination:
-            return hp.read_alm(os.path.join(self.filebase,f"{self.prefix}{idx}.fits"), hdu=1)
+            return hp.read_alm(os.path.join(self.filebase,f"{self.prefix}{idx:04d}.fits"), hdu=1)
         else:
             return self.get_combined_field(idx,1)
 
     
     def get_sim_elm(self,idx):
         if not self.combination:
-            return hp.read_alm(os.path.join(self.filebase,f"{self.prefix}{idx}.fits"), hdu=2)
+            return hp.read_alm(os.path.join(self.filebase,f"{self.prefix}{idx:04d}.fits"), hdu=2)
         else:
             return self.get_combined_field(idx,2)
     
     def get_sim_blm(self,idx):
         if not self.combination:
-            return hp.read_alm(os.path.join(self.filebase,f"{self.prefix}{idx}.fits"), hdu=3)
+            return hp.read_alm(os.path.join(self.filebase,f"{self.prefix}{idx:04d}.fits"), hdu=3)
         else:
             return self.get_combined_field(idx,3)
     
@@ -200,12 +200,12 @@ class SimExperiment:
         print(f"using {self.infolder}, saved to {self.outfolder}")
         
     def make_map(self, idx):
-        fname = os.path.join(self.outfolder,f"cmbonly_{idx}.fits")
+        fname = os.path.join(self.outfolder,f"exp_sims_{idx:04d}.fits")
         
         if os.path.isfile(fname):
             print(f"{fname} already exist")
         else:
-            maps = hp.read_map(os.path.join(self.infolder,f"cmbonly_{idx}.fits"),(0,1,2))
+            maps = hp.read_map(os.path.join(self.infolder,f"cmb_sims_{idx:04d}.fits"),(0,1,2))
             if self.red_noise:
                 print("simulation using 1/f noise")
                 noise = self.noise_model.get_maps(idx)
@@ -218,8 +218,8 @@ class SimExperiment:
             hp.write_alm(fname,alms)
             del alms
 
-    def run_job(self):
-        jobs = np.arange(self.n_sim)
+    def run_job(self,missing=None):
+        jobs = missing if missing is not None else np.arange(self.n_sim)
         for i in jobs[mpi.rank::mpi.size]:
             print(f"Making map-{i} in processor-{mpi.rank}")
             self.make_map(i)
@@ -321,23 +321,40 @@ class CMBLensed:
     It saves seeds, Phi Map and Lensed CMB maps
     
     """
-    def __init__(self,outfolder,nsim,cl_path,scal_file,pot_file,verbose=False):
+    def __init__(self,outfolder,nsim,cl_path,scal_file,pot_file,len_file,sim_set,verbose=False):
         self.outfolder = outfolder
         self.cl_unl = camb_clfile2(os.path.join(cl_path, scal_file))
         self.cl_pot = camb_clfile2(os.path.join(cl_path, pot_file))
+        self.cl_len = camb_clfile2(os.path.join(cl_path, len_file))
         self.nside = 2048
         self.lmax = 4096
         self.dlmax = 1024
         self.facres = 0
         self.verbose = verbose
         self.nsim = nsim
+        self.sim_set = sim_set
+        
+        if sim_set == 1:
+            mass_set = 1
+        elif (sim_set == 2) or (sim_set == 3):
+            mass_set = 2
+        elif sim_set == 4:
+            assert len_file is not None
+            mass_set = 1
+        else:
+            raise ValueError
+        
+        self.mass_set = mass_set
+        
+        #folder for CMB
+        self.cmb_dir = os.path.join(self.outfolder,f"CMB_SET{self.sim_set}")
+        #folder for mass
+        self.mass_dir = os.path.join(self.outfolder,f"MASS_SET{self.mass_set}") 
         
         if mpi.rank == 0:
             os.makedirs(self.outfolder,exist_ok=True)
-            os.makedirs(os.path.join(self.outfolder,'MASS'),exist_ok=True) #folder for mass
-            os.makedirs(os.path.join(self.outfolder,'CMB'),exist_ok=True) #folder for CMB
-        
-        
+            os.makedirs(self.mass_dir,exist_ok=True) 
+            os.makedirs(self.cmb_dir,exist_ok=True)
         
         
         fname = os.path.join(self.outfolder,'seeds.pkl')
@@ -361,9 +378,9 @@ class CMBLensed:
     def hashdict(self):
         return {'nside':self.nside,
                 'lmax':self.lmax,
-                'nsim':self.nsim,
                 'cl_ee': clhash(self.cl_unl['ee']),
                 'cl_pp': clhash(self.cl_pot['pp']),
+                'cl_tt': clhash(self.cl_len['tt']),
                }
     @property
     def get_seeds(self):
@@ -389,12 +406,13 @@ class CMBLensed:
         generate phi_LM
         Save the phi
         """
-        fname = os.path.join(self.outfolder,'MASS',f"phi_sims_{idx:04d}.fits")
+        fname = os.path.join(self.mass_dir,f"phi_sims_{idx:04d}.fits")
         if os.path.isfile(fname):
             self.vprint(f"Phi field from cache: {idx}")
             return hp.read_alm(fname)
         else:
-            np.random.seed(self.seeds[idx])
+            rNo = self.mass_set - 1
+            np.random.seed(self.seeds[idx]-rNo)
             plm = hp.synalm(self.cl_pot['pp'], lmax=self.lmax + self.dlmax, new=True)
             hp.write_alm(fname,plm)
             self.vprint(f"Phi field cached: {idx}")
@@ -410,13 +428,29 @@ class CMBLensed:
     
     def get_unlensed_alm(self,idx):
         self.vprint(f"Synalm-ing the Unlensed CMB temp: {idx}")
-        np.random.seed(self.seeds[idx]+1)
         Cls = [self.cl_unl['tt'],self.cl_unl['ee'],self.cl_unl['tt']*0,self.cl_unl['te']]
-        return hp.synalm(Cls,lmax=self.lmax + self.dlmax,new=True)
+        np.random.seed(self.seeds[idx]+self.sim_set)
+        alms = hp.synalm(Cls,lmax=self.lmax + self.dlmax,new=True)
+        return alms
+    
+    def get_gauss_lensed(self,idx):
+        fname = os.path.join(self.cmb_dir,f"cmb_sims_{idx:04d}.fits")
+        if os.path.isfile(fname):
+            self.vprint(f"CMB Gaussian fields from cache: {idx}")
+            return hp.read_map(fname,(0,1,2),dtype=np.float64)
+        else:
+            Cls = [self.cl_len['tt'],self.cl_len['ee'],self.cl_len['bb'],self.cl_len['te']]
+            np.random.seed(self.seeds[idx])
+            maps = hp.synfast(Cls,self.nside,self.lmax,pol=True)
+            hp.write_map(fname,maps,dtype=np.float64)
+            self.vprint(f"CMB Gaussian fields cached: {idx}")
+            return maps
+            
+            
 
     
     def get_lensed(self,idx):
-        fname = os.path.join(self.outfolder,'CMB',f"cmb_sims_{idx:04d}.fits")
+        fname = os.path.join(self.cmb_dir,f"cmb_sims_{idx:04d}.fits")
         if os.path.isfile(fname):
             self.vprint(f"CMB fields from cache: {idx}")
             return hp.read_map(fname,(0,1,2),dtype=np.float64)
@@ -443,5 +477,8 @@ class CMBLensed:
         jobs = np.arange(self.nsim)
         for i in jobs[mpi.rank::mpi.size]:
             print(f"Lensing map-{i} in processor-{mpi.rank}")
-            NULL = self.get_lensed(i)
+            if self.sim_set == 4:
+                NULL = self.get_gauss_lensed(i)
+            else:
+                NULL = self.get_lensed(i)
             del NULL

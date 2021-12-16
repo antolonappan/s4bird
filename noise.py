@@ -422,7 +422,7 @@ class NoiseMap_LB_white:
         fname = os.path.join(self.outfolder,'seeds.pkl')
         
         if (not os.path.isfile(fname)) and (mpi.rank == 0) and (seed_file == None):
-            seeds = [np.random.randint(11111,99999) for i in range(self.n_sim)]
+            seeds = self.get_seeds
             pk.dump(seeds, open(fname,'wb'), protocol=2)
         mpi.barrier()
         
@@ -432,8 +432,22 @@ class NoiseMap_LB_white:
             
         self.seeds = pk.load(open(fname,'rb'))
     
+    @property
+    def get_seeds(self):
+        """
+        non-repeating seeds
+        """
+        seeds =[]
+        no = 0
+        while no <= self.n_sim-1:
+            r = np.random.randint(11111,99999)
+            if r not in seeds:
+                seeds.append(r)
+                no+=1
+        return seeds
+    
     def get_maps(self,idx):
-        fname = os.path.join(self.outfolder,f"noiseonly_{idx}.fits")
+        fname = os.path.join(self.outfolder,f"noise_sims_{idx:04d}.fits")
         if os.path.isfile(fname):
             return hp.read_map(fname,(0,1,2))
         else:
