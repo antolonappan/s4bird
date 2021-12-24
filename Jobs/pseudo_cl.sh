@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --qos=debug
 #SBATCH --constraint=haswell
-#SBATCH --nodes=2
-#SBATCH --ntasks=20
+#SBATCH --nodes=64
+#SBATCH --ntasks=1000
 #SBATCH --cpus-per-task=1
 #SBATCH -J s4bird
 #SBATCH -o out/delens.out
@@ -20,5 +20,5 @@ cd /global/u2/l/lonappan/workspace/New_s4bird/s4bird
 
 export ini=delensing.ini
 
-#15 min
-mpirun -np 20 python processing.py $ini -delens
+#10 min
+mpirun -np 100 python libparam.py $ini -cl 

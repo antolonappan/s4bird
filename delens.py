@@ -20,7 +20,7 @@ from shutil import copyfile
 
 
 class Delensing:
-    __slots__ = ["lib_dir","sims","ivfs","qlms","qresp","nhl","n_sim","lmax_qlm","cl_ppf","nside","maskpath","save_template","verbose","qnorm","transf",'key']
+    __slots__ = ["lib_dir","sims","ivfs","qlms","qresp","nhl","n_sim","lmax_qlm","cl_ppf","nside","maskpath","save_template","verbose","qnorm","transf",'key',"first_set","last_set"]
     
     def __init__(self,lib_dir,
                  sims,
@@ -53,9 +53,8 @@ class Delensing:
         self.save_template = save_template
         self.verbose = verbose
         self.transf = transf
-        
-
-        assert ivfs.hashdict()['cinv_t']['ninv'][1] == maskpath
+        self.first_set = np.arange(0,400)
+        self.last_set = np.arange(4,20)
         
         self.qnorm = utils.cli(self.qresp)
         
@@ -78,28 +77,52 @@ class Delensing:
             
                }
 
+    
     def mf_corrected_qlm(self,idx):
         qlm = self.qlms.get_sim_qlm( self.key, idx)
-        mf_sims = np.arange(self.n_sim)
-        mf_sims = np.delete(mf_sims,idx)
-        qlm_mf = self.qlms.get_sim_qlm_mf( self.key, mf_sims)
+        qlm_mf = self.qlms.get_sim_qlm_mf(self.key,self.first_set) if idx > 500 else self.qlms.get_sim_qlm_mf(self.key,self.last_set)
         return qlm - qlm_mf
     
-    def kappa_wf(self,idx):
+    def plot_clpp(self,idx):
         ell = np.arange(0, self.lmax_qlm)
         nhl = self.nhl.get_sim_nhl(idx,  self.key,  self.key)
-        qlm_norm = hp.almxfl(self.mf_corrected_qlm(idx),1/self.qresp)
+        w = lambda ell : ell ** 2 * (ell + 1.) ** 2 * 0.5 / np.pi
+        w2 = lambda ell : ell*(ell+1) * 0.5 /np.pi
+        qlm = self.mf_corrected_qlm(idx)
+        clpp = hp.alm2cl(qlm)[ell] * self.qnorm[ell] ** 2 / self.qlms.fsky12 * w(ell)
+        noise = nhl[ell] * self.qnorm[ell] ** 2 * w(ell)
+        pl.figure(figsize=(8,8))
+        pl.loglog(ell,(clpp-noise),label=r'$C_L^{\phi\phi, \rm recon}$')
+        pl.loglog(ell,noise,label=r'$N_L^0$')
+        pl.loglog(ell, hp.alm2cl(self.qlm_wf(idx))[ell] *w(ell), label=r'$C_L^{\phi\phi, \rm WF\: reco}$')
+        pl.loglog(ell, self.cl_ppf[ell] *  w(ell), c='k', label=r'$C_L^{\phi\phi, \rm fid}$')
+        pl.xlabel('$L$')
+        pl.ylabel('$L^2 (L + 1)^2 C_L^{\phi\phi}$')
+        pl.legend(fontsize=20)
+    
+    def get_fl(self,idx):
+        ell = np.arange(0, self.lmax_qlm)
+        nhl = self.nhl.get_sim_nhl(idx,  self.key,  self.key)
         fl = self.cl_ppf[ell]/(self.cl_ppf[ell]+(nhl[ell] * self.qnorm[ell] ** 2))
-        wplm = hp.almxfl(qlm_norm,fl)
+        fl[0] = 0
+        return fl   
+    
+    def qlm_wf(self,idx):
+        qlm_norm = hp.almxfl(self.mf_corrected_qlm(idx),self.qnorm)
+        fl = self.get_fl(idx)
+        return hp.almxfl(qlm_norm,fl)
+    
+    
+    def kappa_wf(self,idx):
+        wplm = self.qlm_wf(idx)
         walpha = hp.almxfl(wplm, np.sqrt(np.arange(self.lmax_qlm + 1, dtype=float) * np.arange(1, self.lmax_qlm + 2)))
         ftl = np.ones(self.lmax_qlm + 1, dtype=float) * (np.arange(self.lmax_qlm + 1) >= 10)
         walpha = hp.almxfl(walpha,ftl)
-        walpha[0] = 0
         return walpha
     
     def get_template(self,idx):
-        filename = [os.path.join(self.lib_dir,f"sim_template_{self.key}_{idx}_Q.fits"),
-                    os.path.join(self.lib_dir,f"sim_template_{self.key}_{idx}_U.fits")]
+        filename = [os.path.join(self.lib_dir,f"sim_template_{self.key}_{idx:04d}_Q.fits"),
+                    os.path.join(self.lib_dir,f"sim_template_{self.key}_{idx:04d}_U.fits")]
         if os.path.isfile(filename[0]) and os.path.isfile(filename[1]):
             return hp.read_map(filename[0],verbose=self.verbose), hp.read_map(filename[1],verbose=self.verbose)
         
@@ -123,8 +146,8 @@ class Delensing:
         return self.sims.get_sim_pmap(idx)
     
     def get_delensed_field(self,idx):
-        filename = [os.path.join(self.lib_dir,f"sim_delens_{self.key}_{idx}_Q.fits"),
-                    os.path.join(self.lib_dir,f"sim_delens_{self.key}_{idx}_U.fits")]
+        filename = [os.path.join(self.lib_dir,f"sim_delens_{self.key}_{idx:04d}_Q.fits"),
+                    os.path.join(self.lib_dir,f"sim_delens_{self.key}_{idx:04d}_U.fits")]
         if os.path.isfile(filename[0]) and os.path.isfile(filename[1]):
             return hp.read_map(filename[0],verbose=self.verbose), hp.read_map(filename[1],verbose=self.verbose)
         
@@ -298,15 +321,16 @@ class Efficency:
 
 class Pseudo_cl:
     
-    def __init__(self,lib_dir,delens_lib,maskpath,purify_b=True,beam=None,nside=512,bins=10,workspace_path=None):
+    def __init__(self,lib_dir,delens_lib,maskpre,purify_b=True,beam=None,nside=512,bins=10,apo=10,workspace_path=None):
         
         self.delens_lib = delens_lib
-        self.maskpath = maskpath
+        self.maskpath = maskpre
         self.mask = hp.read_map(maskpath,verbose=False)
         self.bins = bins
         self.nside = nside
         self.b = nmt.NmtBin.from_nside_linear(self.nside, self.bins)
         self.purify_b = purify_b
+        self.apo = apo
         if beam is not None:
             self.beam = hp.gauss_beam(np.radians(beam/60),lmax=(3*self.nside)-1)
             print(f"A beam correction of {beam} arcmin is considered")

@@ -5,8 +5,8 @@
 #SBATCH --ntasks=1000
 #SBATCH --cpus-per-task=1
 #SBATCH -J s4bird
-#SBATCH -o out/maps.out
-#SBATCH -e out/maps.err
+#SBATCH -o out/maps_lensed.out
+#SBATCH -e out/maps_lensed.err
 #SBATCH --time=00:45:00
 #SBATCH --mail-type=begin,end,fail
 #SBATCH --mail-user=anto.lonappan@sissa.it
@@ -20,7 +20,4 @@ cd /global/u2/l/lonappan/workspace/S4bird
 
 export ini=litebird.ini
 
-#1hr 20 mins
-#mpirun -np 1000 python map.py $ini -map_lensed
-
-mpirun -np 1000 python map.py $ini -map_exp
+mpirun -np 1000 python map.py $ini -map_lensed

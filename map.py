@@ -7,7 +7,7 @@ from plancklens import utils
 import argparse
 from noise import NoiseMap_s4_LAT
 
-ini_dir = '/global/u2/l/lonappan/workspace/S4bird/ini_new'
+ini_dir = '/global/u2/l/lonappan/workspace/New_s4bird/s4bird/ini_new/'
 
 
 parser = argparse.ArgumentParser(description='ini')
