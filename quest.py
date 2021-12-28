@@ -51,6 +51,7 @@ class FilteringAndQE:
 
         # FILE CONFIG
         base = file_config['base_name']
+        self.base = base
         workbase = file_config['base_folder']
         pathbase = os.path.join(workbase,base)
 
@@ -69,6 +70,7 @@ class FilteringAndQE:
         self.QE_dir = TEMP
 
         transf = hp.gauss_beam( map_config['beam']/ 60. / 180. * np.pi, lmax=lmax_ivf)
+        self.transf = transf
 
         cl_unl_fname = os.path.join(cl_folder,f"{cl_base}_lenspotential.dat")
         cl_len_fname = os.path.join(cl_folder,f"{cl_base}_lensed_dls.dat")
@@ -78,6 +80,7 @@ class FilteringAndQE:
         cl_weight = utils.camb_clfile(cl_len_fname)
         cl_weight['bb'] *= 0.
         self.cl_unl = cl_unl
+        self.cl_len = cl_len
 
 
         sims = s4bird_sims_general(nside,map_path)
@@ -125,15 +128,15 @@ if __name__ == "__main__":
     parser.add_argument('-ivt', dest='ivt', action='store_true', help='do T. filtering')
     parser.add_argument('-ivp', dest='ivp', action='store_true', help='do P. filtering')
     parser.add_argument('-missing', dest='missing',action='store_true', help='only do missing')
+    parser.add_argument('-set',dest='set',action='store',type=int,default=None)
     parser.add_argument('-dd', dest='dd', action='store_true', help='perform dd qlms')
     args = parser.parse_args()
     ini = args.inifile[0]
-
-
+    
     ini_dir = '/global/u2/l/lonappan/workspace/New_s4bird/s4bird/ini_new'
     ini_file = os.path.join(ini_dir,ini)
 
-    fqe = FilteringAndQE(ini_file)
+    fqe = FilteringAndQE(ini_file,args.set)
     jobs = np.arange(fqe.n_sims)
     
     if args.missing:

@@ -4,19 +4,21 @@
 #SBATCH --nodes=64
 #SBATCH --ntasks=1000
 #SBATCH --cpus-per-task=1
-#SBATCH -J s4bird
-#SBATCH -o out/filt_pol2.out
-#SBATCH -e out/filt_pol2.err
+#SBATCH -J Delensing
+#SBATCH -o out/delens2.out
+#SBATCH -e out/delens2.err
 #SBATCH --time=00:30:00
 #SBATCH --mail-type=begin,end,fail
 #SBATCH --mail-user=anto.lonappan@sissa.it
 
 
 source /global/homes/l/lonappan/.bashrc
+
 conda activate PC2
+
 cd /global/u2/l/lonappan/workspace/New_s4bird/s4bird
 
-export ini=litebird2.ini
+export ini=delensing2.ini
 
-
-mpirun -np 1000 python libparam.py $ini -ivp
+#15 min
+mpirun -np $SLURM_NTASKS  python processing.py $ini -delens

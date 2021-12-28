@@ -3,7 +3,7 @@
 #SBATCH --constraint=haswell
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
-#SBATCH -J s4bird
+#SBATCH -J Foreground Maps
 #SBATCH -o out/fg.out
 #SBATCH -e out/fg.err
 #SBATCH --time=08:00:00

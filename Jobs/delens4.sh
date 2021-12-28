@@ -1,13 +1,13 @@
 #!/bin/bash
-#SBATCH --qos=regular
+#SBATCH --qos=debug
 #SBATCH --constraint=haswell
 #SBATCH --nodes=64
 #SBATCH --ntasks=1000
 #SBATCH --cpus-per-task=1
-#SBATCH -J s4bird
-#SBATCH -o out/maps_exp4.out
-#SBATCH -e out/maps_exp4.err
-#SBATCH --time=00:45:00
+#SBATCH -J Delensing
+#SBATCH -o out/delens4.out
+#SBATCH -e out/delens4.err
+#SBATCH --time=00:30:00
 #SBATCH --mail-type=begin,end,fail
 #SBATCH --mail-user=anto.lonappan@sissa.it
 
@@ -18,6 +18,7 @@ conda activate PC2
 
 cd /global/u2/l/lonappan/workspace/New_s4bird/s4bird
 
-export ini=litebird4.ini
+export ini=delensing4.ini
 
-mpirun -np 1000 python map.py $ini -map_exp
+#15 min
+mpirun -np $SLURM_NTASKS  python processing.py $ini -delens

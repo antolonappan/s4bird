@@ -4,7 +4,7 @@
 #SBATCH --nodes=64
 #SBATCH --ntasks=1000
 #SBATCH --cpus-per-task=1
-#SBATCH -J s4bird
+#SBATCH -J Lensed Maps
 #SBATCH -o out/maps_lensed.out
 #SBATCH -e out/maps_lensed.err
 #SBATCH --time=00:45:00
@@ -20,4 +20,4 @@ cd /global/u2/l/lonappan/workspace/S4bird
 
 export ini=litebird.ini
 
-mpirun -np 1000 python map.py $ini -map_lensed
+mpirun -np $SLURM_NTASKS python map.py $ini -map_lensed
