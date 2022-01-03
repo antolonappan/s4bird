@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH --qos=debug
 #SBATCH --constraint=haswell
-#SBATCH --nodes=50
-#SBATCH --ntasks=100
+#SBATCH --nodes=64
+#SBATCH --ntasks=1000
 #SBATCH --cpus-per-task=1
-#SBATCH -J s4bird
+#SBATCH -J Likelihood
 #SBATCH -o out/delens.out
 #SBATCH -e out/delens.err
 #SBATCH --time=00:30:00
@@ -16,14 +16,9 @@ source /global/homes/l/lonappan/.bashrc
 
 conda activate PC2
 
-cd /global/u2/l/lonappan/workspace/S4bird
+cd /global/u2/l/lonappan/workspace/New_s4bird/s4bird
 
-export ini=litebird.ini
+export ini=delensing.ini
 
-#15 min
-#mpirun -np 100 python libparam.py $ini -delens
 
-#10 min
-#mpirun -np 100 python libparam.py $ini -cl 
-
-mpirun -np 100 python libparam.py $ini -lh 
+mpirun -np $SLURM_NTASKS python libparam.py $ini -lh 

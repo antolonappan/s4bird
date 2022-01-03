@@ -97,7 +97,7 @@ class s4bird_sims_general(s4bird_simbase):
     
     def get_sim_tlm(self,idx):
         if not self.combination:
-            return hp.read_alm(os.path.join(self.filebase,f"{self.prefix}{idx:04d}.fits"), hdu=1)
+            return  hp.read_alm(os.path.join(self.filebase,f"{self.prefix}{idx:04d}.fits"), hdu=1)
         else:
             return self.get_combined_field(idx,1)
 
