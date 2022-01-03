@@ -21,4 +21,4 @@ cd /global/u2/l/lonappan/workspace/New_s4bird/s4bird
 export ini=delensing1.ini
 
 #15 min
-mpirun -np $SLURM_NTASKS  python processing.py $ini -delens
+mpirun -np $SLURM_NTASKS  python delens.py $ini -delens

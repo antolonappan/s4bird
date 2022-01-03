@@ -88,6 +88,10 @@ class Delensing:
         qlm_mf = self.first_set if idx > self.mid_sim else self.last_set
         return qlm - qlm_mf
     
+    def get_N0(self,idx):
+        nhl = self.nhl.get_sim_nhl(idx,  self.key,  self.key)
+        return nhl*self.qnorm**2
+    
     def plot_clpp(self,idx):
         ell = np.arange(0, self.lmax_qlm)
         nhl = self.nhl.get_sim_nhl(idx,  self.key,  self.key)
@@ -137,10 +141,9 @@ class Delensing:
         
             Q, U  = lenspyx.alm2lenmap_spin([elm_wf, None], [self.kappa_wf(idx), None], self.nside, 2, facres=-1,verbose=self.verbose)
             del elm_wf
-            if self.transf is not None:
-                Q = hp.smoothing(Q)#,beam_window=self.transf)
-                U = hp.smoothing(U)#,beam_window=self.transf)
-                print("Transfer function applied to the Template")
+            Q = hp.smoothing(Q,beam_window=self.transf)
+            U = hp.smoothing(U,beam_window=self.transf)
+            print("Transfer function applied to the Template")
             
             if self.save_template:
                 hp.write_map(filename[0], Q)
@@ -350,7 +353,10 @@ class Pseudo_cl:
         self.apo_scale = int(apo_scale)
         self.apo_method = apo_method
         self.b = nmt.NmtBin.from_nside_linear(self.nside, self.binsize)
-        self.beam = hp.gauss_beam(np.radians(self.fwhm/60),lmax=self.b.lmax)
+        if self.fwhm == 'None':
+            self.beam = None
+        else: 
+            self.beam = hp.gauss_beam(np.radians(float(self.fwhm)/60),lmax=self.b.lmax)
     
         
         self.maskpath = f"{maskpre}_Nside{nside}_fsky_{self.fsky}_Apo_{apo_method}_Deg_{int(apo_scale)}.fits"
@@ -415,7 +421,7 @@ class Pseudo_cl:
             field = nmt.NmtField(self.mask, [hp.ud_grade(Q,self.nside),hp.ud_grade(U,self.nside)],purify_b=self.purify_b,beam=self.beam)
             del(Q,U)
             print('computing cls')
-            clss = self.workspace.decouple_cell(nmt.compute_coupled_cell(field, field))
+            clss = self.workspace.decouple_cell(nmt.compute_coupled_cell(field, field))[3] #only save BB spectra
             del field
             pk.dump(clss, open(filename, 'wb'), protocol=2)             
             return clss
@@ -444,7 +450,7 @@ class Pseudo_cl:
                 
         spectra = []
         for i in tqdm(range(imin, imax+1), desc='Mean and STD of Bandpower', unit='simulation'):
-            spectra.append(self.get_cls(i,which)[3])
+            spectra.append(self.get_cls(i,which))
         
         return np.array(spectra)
     

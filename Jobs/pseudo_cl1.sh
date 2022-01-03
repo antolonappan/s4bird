@@ -4,9 +4,9 @@
 #SBATCH --nodes=64
 #SBATCH --ntasks=1000
 #SBATCH --cpus-per-task=1
-#SBATCH -J Pseudo Cl
-#SBATCH -o out/delens.out
-#SBATCH -e out/delens.err
+#SBATCH -J Pseudo1
+#SBATCH -o out/Cl1.out
+#SBATCH -e out/Cl1.err
 #SBATCH --time=00:30:00
 #SBATCH --mail-type=begin,end,fail
 #SBATCH --mail-user=anto.lonappan@sissa.it
@@ -18,7 +18,7 @@ conda activate PC2
 
 cd /global/u2/l/lonappan/workspace/New_s4bird/s4bird
 
-export ini=delensing.ini
+export ini=delensing1.ini
 
 #10 min
-mpirun -np $SLURM_NTASKS python libparam.py $ini -cl 
+mpirun -np $SLURM_NTASKS python delens.py $ini -cl 
