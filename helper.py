@@ -61,3 +61,15 @@ def hash_check(hash1, hash2, ignore=['lib_dir', 'prefix'], keychain=[]):
         else:
             if not( v1 == v2 ):
                 hashfail('UNEQUAL VALUES')
+
+def combine_mask(mask1,mask2):
+    print(f"fsky of Mask1: {get_fsky(mask1)}")
+    print(f"fsky of Mask2: {get_fsky(mask2)}")
+    total = mask1+mask2
+    total[np.where(total==1)] = 0
+    total[np.where(total==2)] = 1
+    print(f"fsky of Combined mask:{get_fsky(total)}")
+    return total
+
+def get_fsky(mask):
+    return len(mask[mask==1])/len(mask)

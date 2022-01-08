@@ -96,6 +96,78 @@ class cosmology:
         dl = self.dl if in_dl else np.ones(self.n_ell)
         return self.b.bin_cell(fid[:self.b.lmax+1]) * dl
 
+class Delens_Theory:
+    def __init__(self,ini,lmax,N0,beam=None,nlevp=0):
+        pars = camb.read_ini(ini)
+        pars.max_l = lmax
+        self.lmax = lmax
+        self.results = camb.get_results(pars)
+        self.ell = np.arange(self.lmax +1)
+        self.n0 = N0
+        self.cl_pp = self.results.get_lens_potential_cls()[:,0]
+        self.nlevp = np.radians(nlevp/60)**2
+        self.fl = np.ones(self.lmax+1) if beam is None else hp.gauss_beam(np.radians(beam/60.),self.lmax,True)[:,2]
+        
+    @property
+    def N0(self):
+        N0 = np.zeros(self.lmax+1)
+        N0_ = self.n0
+        N0[np.arange(len(N0_))] += N0_
+        return self.DL*N0
+        
+    @property    
+    def DL(self):
+        l = self.ell
+        return (l*(l+1))**2 / (2*np.pi)
+    @property    
+    def dl(self):
+        l = self.ell
+        return (l*(l+1)) / (2*np.pi)    
+    @property
+    def cl_pp_res(self):
+        return self.cl_pp*(1 - (self.cl_pp/(self.cl_pp+self.N0)))
+        
+    @property
+    def lensed_bb(self):
+        bb = np.zeros(self.lmax+1)
+        bb_ = self.results.get_lensed_scalar_cls(lmax=self.lmax,CMB_unit='muK')[:,2]
+        bb[np.arange(len(bb_))] += bb_
+        return (bb/self.dl)
+    
+    @property
+    def tensor_bb(self):
+        bb = np.zeros(self.lmax+1)
+        bb_ = self.results.get_tensor_cls(lmax=self.lmax,CMB_unit='muK')[:,2]
+        bb[np.arange(len(bb_))] += bb_
+        return (bb/self.dl)
+    
+    @property
+    def delensed_bb(self):
+        bb = np.zeros(self.lmax+1)
+        bb_ = self.results.get_lensed_cls_with_spectrum(self.cl_pp_res,lmax=self.lmax,CMB_unit='muK')[:,2]
+        bb[np.arange(len(bb_))] += bb_
+        return (bb/self.dl)
+    @property
+    def df_bb(self):
+        return self.delensed_bb - self.lensed_bb
+    
+    def plt_bb(self):
+        plt.figure(figsize=(7,7))
+        plt.loglog(self.ell,self.lensed_bb,label='Lensed')
+        plt.loglog(self.ell,self.delensed_bb,label='Delensed')
+        plt.legend(fontsize=20)
+        plt.ylim(1e-6,None)
+        plt.xlabel('$\ell$',fontsize=20)
+        plt.ylabel('$C_\ell^{BB}$',fontsize=20)
+        
+    def plt_pp(self):
+        plt.figure(figsize=(7,7))
+        plt.loglog(self.ell,self.cl_pp,label='PP')
+        plt.loglog(self.ell,self.cl_pp_res,label='Residual')
+        plt.legend(fontsize=20)
+        plt.xlabel('$\ell$',fontsize=20)
+        plt.ylabel('$C_\ell^{\phi \phi}$',fontsize=20)
+
 
 class LH_base:
     
@@ -639,4 +711,135 @@ class ParamStat:
                 data = np.sort(data)
                 data = data[data>0]
             titles.append(f"${self.labels[i]} = {self.getInlinetex(data)}$" )
-        return titles    
+        return titles
+    
+class LH_base2:
+    
+    def __init__(self,cov,nsample,theory,b,lmin,lmax,which,use_diag):
+        self.nsamples = nsample
+        self.theory = theory
+        self.lensed_bb = self.theory.lensed_bb
+        self.delensed_bb = self.theory.delensed_bb
+        self.tensor_bb = self.theory.tensor_bb
+        self.b = b
+        ell = b.get_effective_ells()
+        self.select = np.where((ell>lmin) & (ell<lmax))[0]
+        self.ell = ell[self.select]
+        self.which = which
+        
+        if use_diag:
+            cov_ = np.zeros(cov.shape)
+            np.fill_diagonal(cov_, np.diag(cov))
+        else:
+            cov_ = cov
+        self.cov = cov_
+        self.cov_inv = np.linalg.inv(cov_) 
+    
+    def chi_sq(self):
+        pass
+    
+    def cl_theory_lensed(self,r):
+        th = (r * self.tensor_bb) + self.lensed_bb
+        th = th*self.theory.fl**2 + self.theory.nlevp
+        return self.b.bin_cell(th[:self.b.lmax+1])[self.select]
+    
+    def cl_theory_delensed(self,r):
+        th = (r * self.tensor_bb) + self.delensed_bb
+        th = th*self.theory.fl**2 + self.theory.nlevp
+        return self.b.bin_cell(th[:self.b.lmax+1])[self.select]
+    
+    def cl_theory(self,r):
+        if self.which == 'lensed':
+            return self.cl_theory_lensed(r)
+        elif  self.which == 'delensed':
+            return self.cl_theory_delensed(r)
+        else:
+            pass
+        
+        
+    def log_prior(self,theta):
+        r= theta
+        if  -0.5 < r < 0.5:
+            return 0.0
+        return -np.inf
+
+    def log_probability(self,theta,i):
+        lp = self.log_prior(theta)
+        if not np.isfinite(lp):
+            return -np.inf
+        return lp  -.5*self.chi_sq(theta,i)
+    
+
+    def posterior(self,i):
+        pos = np.array([0]) + 1e-4 * np.random.randn(100, 1)
+        nwalkers, ndim = pos.shape
+        sampler = emcee.EnsembleSampler(nwalkers, ndim, self.log_probability,kwargs={'i':i})
+        sampler.run_mcmc(pos, self.nsamples,progress=True)
+        flat_samples = sampler.get_chain(discard=100, thin=15, flat=True)
+        return flat_samples
+    
+    def report(self,i):
+        samples = i
+        cut_samples = samples[samples > 0]
+        with suppress_stdout():
+            cut_samp = MCSamples(samples=cut_samples,names=['r'], labels=['r'],ranges={'r':(0, None)})
+            return cut_samp.getInlineLatex('r',limit=1,err_sig_figs=5)
+
+    def sigma_r(self,i):
+        samples = self.posterior(i)
+        cut_samples = samples[samples > 0]
+        with suppress_stdout():
+            cut_samp = MCSamples(samples=cut_samples,names=['r'], labels=['r'],ranges={'r':(0, None)})
+            return cut_samp.getInlineLatex('r',limit=1,err_sig_figs=5)   
+        
+
+        
+    def plot_spectra(self,i):
+        plt.loglog(self.ell,self.cl_theory_lensed(0),label='theoryL')
+        plt.loglog(self.ell,self.cl_theory_delensed(0),label='theoryD')
+        plt.errorbar(self.ell,i[self.select],yerr=np.sqrt(np.diag(self.cov)),label='spectra')
+        plt.legend()
+    
+    def plot_posterior(self,i):
+        labels = ["r"]
+        flat_samples = self.posterior(i)
+        print(self.report(flat_samples))
+        plt.figure(figsize=(8,8))
+        fig = corner.corner(flat_samples, labels=labels,truths=[0] )
+        
+class LH_simple2(LH_base2):
+
+    def __init__(self,cov,nsample,theory,b,lmin=10,lmax=100,which='delensed',use_diag=False):
+        super().__init__(cov,nsample,theory,b,lmin,lmax,which,use_diag)
+    
+    def vect(self,theta,i):
+        r = theta
+        cl_th = self.cl_theory(r) 
+
+        return cl_th - i[self.select]
+    
+    def chi_sq(self,theta,i):
+        vec = self.vect(theta,i)
+        l = np.dot(np.dot(vec,self.cov_inv),vec)
+        return  l
+    
+class LH_HL2(LH_base2):
+
+    def __init__(self,c,cov,nsample,theory,b,lmin=10,lmax=100,which='delensed',use_diag=False):
+        super().__init__(cov,nsample,theory,b,lmin,lmax,which,use_diag)
+        self.c = c[self.select]
+
+    def G(self,cl_th,i):
+        x = i[self.select]/cl_th
+        return np.sign(x-1)* np.sqrt(2*(x - np.log(x) - 1))
+    
+    def vect(self,theta,i):
+        r = theta
+        cl_th = self.cl_theory(r)
+        g = self.G(cl_th,i)
+        return g*self.c
+    
+    def chi_sq(self,theta,i):
+        vec = self.vect(theta,i)
+        l = np.dot(np.dot(vec,self.cov_inv),vec)
+        return  l

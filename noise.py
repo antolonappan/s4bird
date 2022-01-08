@@ -314,9 +314,9 @@ class S4_LAT(SOLatBase):
         cl2dl = self.ell*(self.ell+1)/2*np.pi if in_dl else np.ones(len(self.ell))
         plt.figure(figsize=(8,8))
         for i in range(self.n_bands):
-            plt.loglog(self.ell, N_ells[i]*cl2dl, label=f"{self.bands[i]} GHz")
+            plt.loglog(self.ell, N_ells[i]*cl2dl, label=f"{self.bands[i]} GHz",lw=3)
         if in_fiducial:
-            plt.loglog(cl_len['tt']*cl2dl[:len(cl_len['tt'])],label="Fiducial")
+            plt.loglog(cl_len['tt']*cl2dl[:len(cl_len['tt'])],label="TT",lw=3,ls=':',c='k')
         if not in_dl:
             plt.xlim(1e2,1e4)
             plt.ylim(1e-7,1e-1)
@@ -336,11 +336,11 @@ class S4_LAT(SOLatBase):
         cl2dl = self.ell*(self.ell+1)/2*np.pi if in_dl else np.ones(len(self.ell))
         plt.figure(figsize=(8,8))
         for i in range(self.n_bands):
-            plt.loglog(self.ell, N_ells[i]*cl2dl, label=f"{self.bands[i]} GHz")
+            plt.loglog(self.ell, N_ells[i]*cl2dl, label=f"{self.bands[i]} GHz",lw=3)
         if in_fiducial:
-            plt.loglog(cl_len['bb']*cl2dl[:len(cl_len['ee'])],label="Fiducial")
+            plt.loglog(cl_len['bb']*cl2dl[:len(cl_len['ee'])],label="EE",lw=3,ls='--',c='k')
             if not only_bb:
-                plt.loglog(cl_len['ee']*cl2dl[:len(cl_len['ee'])],label="Fiducial")
+                plt.loglog(cl_len['ee']*cl2dl[:len(cl_len['ee'])],label="BB",lw=3,ls=':',c='k')
         if not in_dl:
             plt.xlim(1e2,1e4)
             plt.ylim(1e-7,1e-1)

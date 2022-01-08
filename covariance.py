@@ -435,4 +435,169 @@ class SampleCov:
         except:
             raise FileNotFoundError
             
+class MeanAndCovariance:
+    
+    def __init__(self,lib_dir,biased,unbiased,biased2,theory,lmin,lmax,nsim=1000):
+        self.lib_dir = lib_dir
+        os.makedirs(lib_dir,exist_ok=True)
         
+        self.biased = biased
+        self.unbiased = unbiased
+        self.biased2 = biased2
+        
+        self.theory = theory
+        self.ell = self.biased.pseudocl_lib.ell
+        
+        self.select = np.where((self.ell >= lmin)& (self.ell <= lmax))[0]
+        self.nsim = nsim
+        self.get_biased()
+        self.get_unbiased()
+        self.get_biased2()
+        
+        
+
+    
+    def get_biased(self,which=None):
+        def creturn(dic):
+            if which is None:
+                pass
+            else:
+                return dic[which]
+        
+        fname = os.path.join(self.lib_dir,f'biased_{self.nsim}.pkl')
+        if os.path.isfile(fname):
+            return creturn(pk.load(open(fname,'rb')))
+        else:
+            lensed = []
+            delensed = []
+            for i in tqdm(range(self.nsim),desc='Biased spectra Array', unit='simulation'):
+                lensed.append(self.biased.pseudocl_lib.get_lensed_cl(i))
+                delensed.append(self.biased.pseudocl_lib.get_delensed_cl(i))
+            dic = {'lensed':np.array(lensed),'delensed':np.array(delensed)}
+            pk.dump(dic,open(fname,'wb'))
+            return creturn(dic)
+        
+    def get_unbiased(self,which=None):
+        def creturn(dic):
+            if which is None:
+                pass
+            else:
+                return dic[which]
+        
+        fname = os.path.join(self.lib_dir,f'unbiased_{self.nsim}.pkl')
+        if os.path.isfile(fname):
+            return creturn(pk.load(open(fname,'rb')))
+        else:
+            lensed = []
+            delensed = []
+            for i in tqdm(range(self.nsim),desc='Unbiased spectra Array', unit='simulation'):
+                lensed.append(self.unbiased.pseudocl_lib.get_lensed_cl(i))
+                delensed.append(self.unbiased.pseudocl_lib.get_delensed_cl(i))
+            dic = {'lensed':np.array(lensed),'delensed':np.array(delensed)}
+            pk.dump(dic,open(fname,'wb'))
+            
+            return creturn(dic)
+        
+    def get_biased2(self,which=None):
+        def creturn(dic):
+            if which is None:
+                pass
+            else:
+                return dic[which]
+        
+        fname = os.path.join(self.lib_dir,f'biased2_{self.nsim}.pkl')
+        if os.path.isfile(fname):
+            return creturn(pk.load(open(fname,'rb')))
+        else:
+            lensed = []
+            delensed = []
+            for i in tqdm(range(self.nsim),desc='Biased2 spectra Array', unit='simulation'):
+                lensed.append(self.biased2.pseudocl_lib.get_lensed_cl(i))
+                delensed.append(self.biased2.pseudocl_lib.get_delensed_cl(i))
+            dic = {'lensed':np.array(lensed),'delensed':np.array(delensed)}
+            pk.dump(dic,open(fname,'wb'))
+            return creturn(dic)
+    
+    @property
+    def bias_array(self):
+        biased_lensed = self.get_biased2('lensed')
+        biased_delensed = self.get_biased2('delensed')
+        unbiased_lensed = self.get_unbiased('lensed')
+        unbiased_delensed = self.get_unbiased('delensed')
+        
+        df_biased = biased_delensed - biased_lensed
+        df_unbiased = unbiased_delensed - unbiased_lensed
+        
+        return df_biased - df_unbiased
+    
+    @property
+    def mcbias_array(self):
+        lmax = self.unbiased.pseudocl_lib.b.lmax
+        unbiased_lensed = self.get_unbiased('lensed')
+        unbiased_delensed = self.get_unbiased('delensed')
+        theory_delensed = (self.theory.delensed_bb * self.theory.fl**2) + self.theory.nlevp
+        theory_lensed = (self.theory.lensed_bb * self.theory.fl**2) + self.theory.nlevp
+        df_theory = self.unbiased.pseudocl_lib.b.bin_cell(theory_delensed-theory_lensed)
+        df_unbiased = unbiased_delensed - unbiased_lensed
+        
+        return df_unbiased - df_theory
+    
+    def cov(self,arr):
+        mean = arr.mean(axis=0)[self.select]
+        ncov = len(mean)
+        cov = np.zeros((ncov,ncov))
+        for i in tqdm(range(self.nsim),desc='Covariance', unit='simulation'):
+            arr_i = arr[i][self.select]
+            cov += arr_i[None,:]*arr_i[:,None]
+        cov/=self.nsim
+        cov -= mean[None,:]*mean[:,None]
+        return cov
+    
+    def cov_cross(self,arr1,arr2):
+        mean1 = arr1.mean(axis=0)[self.select]
+        mean2 = arr2.mean(axis=0)[self.select]
+        ncov = len(mean1)
+        cov = np.zeros((ncov,ncov))
+        for i in tqdm(range(self.nsim),desc='Covariance', unit='simulation'):
+            arr1_i = arr1[i][self.select]
+            arr2_i = arr2[i][self.select]
+            cov += arr1_i[None,:]*arr2_i[:,None]
+        cov/=self.nsim
+        cov -= mean1[None,:]*mean2[:,None]
+        return cov 
+    
+    @property
+    def lensed_cov_fid(self):
+        return self.cov(self.get_biased('lensed'))
+        
+    @property
+    def delensed_cov_fid(self):
+        return self.cov(self.get_unbiased('delensed'))
+    
+    @property
+    def debiased_w_mc(self):
+        return self.get_biased('delensed') - self.bias_array - self.mcbias_array
+    
+    @property
+    def debiased_wo_mc(self):
+        return self.get_biased('delensed') - self.bias_array
+    
+    @property
+    def delensed_cov_w_mc(self):
+        return self.cov(self.debiased_w_mc)
+    
+    @property
+    def delensed_cov_wo_mc(self):
+        return self.cov(self.debiased_wo_mc)
+
+    def corr(self,mat):
+        sha = mat.shape
+        corr_mat = np.zeros(sha)
+        for i in range(sha[0]):
+            for j in range(sha[1]):
+                corr_mat[i,j] = mat[i,j]/np.sqrt(mat[i,i]*mat[j,j])      
+        return corr_mat
+    
+    def plot_corr(self,mat):
+        plt.imshow(self.corr(mat),cmap='GnBu')
+        plt.colorbar()   
