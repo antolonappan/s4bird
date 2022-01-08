@@ -167,6 +167,10 @@ class Delens_Theory:
         plt.legend(fontsize=20)
         plt.xlabel('$\ell$',fontsize=20)
         plt.ylabel('$C_\ell^{\phi \phi}$',fontsize=20)
+        
+    #def sigma_r(alens=1,fsky=.5,lmin=10,lmax=150):
+    #    f_rr = (ell[lmin:lmax+1] + 0.5)*fsky * ((tensor['bb'][lmin:lmax+1]/((alens*lensed['bb'][lmin:lmax+1]+n)))**2)
+    #    return f"{np.sum(f_rr)**-.5:.2e}"
 
 
 class LH_base:

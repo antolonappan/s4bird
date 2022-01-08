@@ -9,3 +9,5 @@
 *.DS_Store
 *.err
 *.out
+/Notebooks
+*.ipynb
