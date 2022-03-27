@@ -110,9 +110,7 @@ class Delens_Theory:
         
     @property
     def N0(self):
-        N0 = np.zeros(self.lmax+1)
-        N0_ = self.n0
-        N0[np.arange(len(N0_))] += N0_
+        N0 = self.n0[:self.lmax+1]
         return self.DL*N0
         
     @property    

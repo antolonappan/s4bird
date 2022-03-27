@@ -8,11 +8,12 @@ cond4mpi4py = not has_key('NERSC_HOST') or (has_key('NERSC_HOST') and has_key('S
 if cond4mpi4py:
     try:
         from mpi4py import MPI
-
-        rank = MPI.COMM_WORLD.Get_rank()
-        size = MPI.COMM_WORLD.Get_size()
-        barrier = MPI.COMM_WORLD.Barrier
-        finalize = MPI.Finalize
+        mpi = MPI
+        com = MPI.COMM_WORLD
+        rank = com.Get_rank()
+        size = com.Get_size()
+        barrier = com.Barrier
+        finalize = mpi.Finalize
         if verbose: print('mpi.py : setup OK, rank %s in %s' % (rank, size))
     except:
         rank = 0

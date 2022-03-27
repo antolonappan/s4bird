@@ -7,6 +7,7 @@ import pysm3.units as u
 import numpy as np
 import matplotlib.pyplot as plt
 from plancklens import utils
+from tqdm import tqdm 
 #cl_len = utils.camb_clfile('cmbs4_lensedCls.dat')
 
 def get_atmosphere_C(freqs, version=1, el=None):
@@ -147,7 +148,7 @@ class SOLatBase:
         return A / self.get_survey_time()
 
     def get_white_noise(self, f_sky, units='arcmin2'):
-        return self.band_sens**2 * self.get_survey_spread(f_sky, units=units)
+        return np.sqrt(self.band_sens**2 * self.get_survey_spread(f_sky, units=units))
 
     def get_noise_curves(self, f_sky, ell_max, delta_ell, deconv_beam=True,
                          full_covar=False):
@@ -306,8 +307,10 @@ class S4_LAT(SOLatBase):
         N_ell_LA_P  = self.N_ell_LA_P_full[range(self.n_bands),range(self.n_bands)]
         return self.creturn(N_ell_LA_P,rtype)
     
-    def white_noise_level(self,rtype='ndarray'):
+    def white_noise_level_T(self,rtype='ndarray'):
         return self.creturn(self.get_white_noise(self.fsky)**.5, rtype)
+    def white_noise_level_P(self,rtype='ndarray'):
+        return self.creturn(self.get_white_noise(self.fsky)**.5 * np.sqrt(2), rtype)
     
     def plot_nosie_temprature(self,cl_len,in_dl=True,in_fiducial=False,savefig=False,filen='nl_t_s4'):
         N_ells = self.noise_curves_T()
@@ -357,8 +360,8 @@ class S4_LAT(SOLatBase):
             
             
 class NoiseMap_s4_LAT(S4_LAT):
-    def __init__(self,outfolder,nside,nsim,seed_file=None,
-                 fsky=0.4, survey_years=7.,survey_efficiency=0.25,el=40,ellmax=8000):
+    def __init__(self,outfolder,nside,nsim,
+                 fsky=0.6, survey_years=7.,survey_efficiency=0.25,el=40,ellmax=8000):
         
         super().__init__(fsky,survey_years,survey_efficiency,el,ellmax)
         self.n_sim = nsim
@@ -369,21 +372,62 @@ class NoiseMap_s4_LAT(S4_LAT):
             
         fname = os.path.join(self.outfolder,'seeds.pkl')
         
-        if (not os.path.isfile(fname)) and (mpi.rank == 0) and (seed_file == None):
-            seeds = [np.random.randint(11111,99999) for i in range(self.n_sim)]
+        if (not os.path.isfile(fname)) and (mpi.rank == 0):
+            seeds = self.get_seeds
             pk.dump(seeds, open(fname,'wb'), protocol=2)
         mpi.barrier()
-        
-        if seed_file != None:
-            print(f"Simulations use a seed file:{seed_file}")
-            fname = seed_file
             
         self.seeds = pk.load(open(fname,'rb'))
         self.nl_t = self.noise_curves_T()
         self.nl_p = self.noise_curves_P()
+        
+    @property
+    def get_seeds(self):
+        """
+        non-repeating seeds
+        """
+        seeds =[]
+        no = 0
+        while no <= self.n_sim-1:
+            r = np.random.randint(11111,99999)
+            if r not in seeds:
+                seeds.append(r)
+                no+=1
+        return seeds
     
-    def get_maps(self,idx,which=4):
-        fname = os.path.join(self.outfolder,f"noiseonly_{idx}.fits")
+    @property
+    def nl_coadd(self):
+        
+        def inv_var(Nl):
+            return 1/sum(1/a for a in Nl)
+        
+        ncl_t = inv_var(self.nl_t)
+        ncl_p = inv_var(self.nl_p)
+        ncl_t[0],ncl_p[0] = 0, 0
+        
+        return ncl_t, ncl_p
+        
+        
+    
+    def get_maps(self,idx):
+        fname = os.path.join(self.outfolder,f"noise_sims_{idx:04d}.fits")
+        if os.path.isfile(fname):
+            return hp.read_map(fname,(0,1,2))
+        else:
+            ncl_t,ncl_p = self.nl_coadd
+            np.random.seed(self.seeds[idx])
+            mapt = hp.synfast(ncl_t,self.nside)
+            np.random.seed(self.seeds[idx]+1)
+            mapq = hp.synfast(ncl_p,self.nside)
+            np.random.seed(self.seeds[idx]+2)
+            mapu = hp.synfast(ncl_p,self.nside)
+            maps = [mapt,mapq,mapu]
+            hp.write_map(fname,maps)
+            return maps
+        
+    
+    def get_maps_freq(self,idx,which=4):
+        fname = os.path.join(self.outfolder,f"noise_sims_{idx:04d}.fits")
         if os.path.isfile(fname):
             return hp.read_map(fname,(0,1,2))
         else:
@@ -462,12 +506,30 @@ class NoiseMap_LB_white:
             res *= depth.value / hp.nside2resol(self.nside, True)
             hp.write_map(fname,res.T)
             return  res.T
-    
-    def run_job(self):
+        
+        
+    def get_alms(self,idx):
+        alm_dir = os.path.join(self.outfolder,'Alms')
+        if mpi.rank == 0:
+            os.makedirs(alm_dir, exist_ok=True)
+        mpi.barrier()
+        fname = os. path.join(alm_dir, f"sims_alms_{idx:04d}.fits")
+        if os.path.isfile(fname):
+            return hp.read_alm(fname,(1,2,3))
+        else:
+            alms = hp.map2alm(self.get_maps(idx))
+            hp.write_alm(fname,alms)
+            return alms
+        
+    def run_job(self,alms=False):
         jobs = np.arange(self.n_sim)
         for i in jobs[mpi.rank::mpi.size]:
-            print(f"Making noise map-{i} in processor-{mpi.rank}")
-            self.get_maps(i) 
+            if not alms:
+                print(f"Making noise map-{i} in processor-{mpi.rank}")
+                self.get_maps(i) 
+            else:
+                print(f"Making noise alms-{i} in processor-{mpi.rank}")
+                self.get_alms(i) 
 
 class NoiseMap_LB_Freq:
     def __init__(self,outfolder,nside,depth_p,freq,nsim=None,seed_file=None):
@@ -483,7 +545,7 @@ class NoiseMap_LB_Freq:
         fname = os.path.join(self.outfolder,'seeds.pkl')
         
         if (not os.path.isfile(fname)) and (mpi.rank == 0) and (seed_file == None):
-            seeds = [np.random.randint(11111,99999) for i in range(self.n_sim)]
+            seeds = self.get_seeds
             pk.dump(seeds, open(fname,'wb'), protocol=2)
         mpi.barrier()
         
@@ -492,6 +554,21 @@ class NoiseMap_LB_Freq:
             fname = seed_file
             
         self.seeds = pk.load(open(fname,'rb'))
+
+        
+    @property
+    def get_seeds(self):
+        """
+        non-repeating seeds
+        """
+        seeds =[]
+        no = 0
+        while no <= self.n_sim-1:
+            r = np.random.randint(11111,99999)
+            if r not in seeds:
+                seeds.append(r)
+                no+=1
+        return seeds
     
     def get_maps_v(self,idx,i):
         fname = os.path.join(self.outfolder,f"noiseonly_{idx}_{int(self.freq[i])}.fits")

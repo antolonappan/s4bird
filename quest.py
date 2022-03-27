@@ -35,7 +35,8 @@ class FilteringAndQE:
         lmax_qlm = qe_config['lmax_qlm']
         qe_key = qe_config["key"]
         self.lmax_qlm = lmax_qlm
-        self.qe_key  = qe_key 
+        self.qe_key  = qe_key
+             
 
         # MAP CONFIG
         nlev_t = map_config['nlev_t']
@@ -121,7 +122,6 @@ class FilteringAndQE:
 
 if __name__ == "__main__":
     
-    
     import argparse
     parser = argparse.ArgumentParser(description='ini')
     parser.add_argument('inifile', type=str, nargs=1)
@@ -133,7 +133,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     ini = args.inifile[0]
     
-    ini_dir = '/global/u2/l/lonappan/workspace/New_s4bird/s4bird/ini_new'
+    ini_dir = '/global/u2/l/lonappan/workspace/s4bird/s4bird/ini'
     ini_file = os.path.join(ini_dir,ini)
 
     fqe = FilteringAndQE(ini_file,args.set)
@@ -150,10 +150,10 @@ if __name__ == "__main__":
         print("Temperature missing idx:", m_t, f"Length:{len(m_t)}")
         
     if args.ivt:
-        assert len(m_t) <= mpi.size
         
         if args.missing:
             jobs = np.array(m_t)
+            assert len(m_t) <= mpi.size
         
         for i in jobs[mpi.rank::mpi.size]:
             print(f"Filtering temperature Map-{i} in Processor-{mpi.rank}")
@@ -161,10 +161,9 @@ if __name__ == "__main__":
             del tlm
     
     if args.ivp:
-        assert len(m_p) <= mpi.size
-        
         if args.missing:
             jobs = np.array(m_p)
+            assert len(m_p) <= mpi.size
             
         for i in jobs[mpi.rank::mpi.size]:
             print(f"Filtering polarization Map-{i} in Processor-{mpi.rank}")
@@ -172,7 +171,7 @@ if __name__ == "__main__":
             del elm
     
     if args.dd:
-         for i in jobs[mpi.rank::mpi.size]:
+        for i in jobs[mpi.rank::mpi.size]:
             print(f"Making QE-{i} in Processor-{mpi.rank}")
             qlm = fqe.qlms_dd.get_sim_qlm(fqe.qe_key,i)
             del qlm

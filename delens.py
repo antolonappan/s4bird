@@ -10,7 +10,7 @@ from quest import FilteringAndQE
 
 class DelensAndCl:
     def __init__(self,ini):
-        ini_dir = '/global/u2/l/lonappan/workspace/New_s4bird/s4bird/ini_new/'
+        ini_dir = '/global/u2/l/lonappan/workspace/s4bird/s4bird/ini/'
         ini_file = os.path.join(ini_dir,ini)
 
         config = toml.load(ini_file)
@@ -43,7 +43,7 @@ class DelensAndCl:
 
         delens_path = os.path.join(path_final, delens_config['folder'])
 
-        assert of_fqe.maskpaths[0] == by_fqe.maskpaths[0]
+        #assert of_fqe.maskpaths[0] == by_fqe.maskpaths[0]
 
         sims = of_fqe.sims
 
@@ -68,7 +68,7 @@ class DelensAndCl:
         maskpaths = by_fqe.maskpaths
         qe_key = by_fqe.qe_key
 
-        self.delens_lib = Delensing(delens_path,sims,ivfs_raw,qlms_dd,qresp_dd,nhl_dd,n_sims,lmax_qlm,cl_unl['pp'],nside,maskpaths[0],qe_key,transf=transf_of,save_template=True,verbose=False)
+        self.delens_lib = Delensing(delens_path,sims,ivfs_raw,qlms_dd,qresp_dd,nhl_dd,n_sims,lmax_qlm,cl_unl['pp'],nside,maskpaths[0],qe_key,delens_config['template'],transf=transf_of,save_template=False,verbose=False)
 
         pcl_dir = pseudo_cl_config['folder']
         pcl_beam = pseudo_cl_config['beam']
@@ -81,7 +81,7 @@ class DelensAndCl:
         pcl_maskbase = pseudo_cl_config['maskbase']
 
         pcl_path = os.path.join(path_final, pcl_dir)
-        self.pseudocl_lib = Pseudo_cl(pcl_path,self.delens_lib,pcl_maskbase,pcl_beam,pcl_purify_b,pcl_nside,pcl_fsky,pcl_binsize,pcl_apo_scale,pcl_apo_method)
+        self.pseudocl_lib = Pseudo_cl(pcl_path,self.delens_lib,pcl_maskbase,pcl_beam,pcl_purify_b,pcl_nside,pcl_fsky,pcl_binsize,pcl_apo_scale,pcl_apo_method,delens_config['template'])
 
 if __name__ == "__main__":
     import argparse

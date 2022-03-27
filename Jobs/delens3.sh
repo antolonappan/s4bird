@@ -4,7 +4,7 @@
 #SBATCH --nodes=64
 #SBATCH --ntasks=1000
 #SBATCH --cpus-per-task=1
-#SBATCH -J Delensing
+#SBATCH -J Delensing3
 #SBATCH -o out/delens3.out
 #SBATCH -e out/delens3.err
 #SBATCH --time=00:30:00
@@ -16,7 +16,7 @@ source /global/homes/l/lonappan/.bashrc
 
 conda activate PC2
 
-cd /global/u2/l/lonappan/workspace/New_s4bird/s4bird
+cd /global/u2/l/lonappan/workspace/s4bird/s4bird
 
 export ini=delensing3.ini
 

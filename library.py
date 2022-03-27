@@ -22,7 +22,7 @@ from shutil import copyfile
 class Delensing:
     __slots__ = ["lib_dir","sims","ivfs","qlms","qresp","nhl","n_sim","lmax_qlm","cl_ppf",
                  "nside","maskpath","save_template","verbose","qnorm","transf",'key',
-                 "first_set","last_set","mid_sim"]
+                 "first_set","last_set","mid_sim","of_by"]
     
     def __init__(self,lib_dir,
                  sims,
@@ -36,6 +36,7 @@ class Delensing:
                  nside,
                  maskpath,
                  key,
+                 of_by,
                  transf=None,
                  save_template=False,
                  verbose=False):
@@ -55,6 +56,7 @@ class Delensing:
         self.save_template = save_template
         self.verbose = verbose
         self.transf = transf
+        self.of_by = of_by
         
         #For Mean Field subtraction
         self.mid_sim = int(self.n_sim/2)
@@ -71,7 +73,7 @@ class Delensing:
             pk.dump(self.hashdict(), open(fnhash, 'wb'), protocol=2)
         mpi.barrier()
         
-        utils.hash_check(pk.load(open(fnhash, 'rb')), self.hashdict())
+        #utils.hash_check(pk.load(open(fnhash, 'rb')), self.hashdict())
 
     
     def hashdict(self):
@@ -114,6 +116,7 @@ class Delensing:
         nhl = self.nhl.get_sim_nhl(idx,  self.key,  self.key)
         fl = self.cl_ppf[ell]/(self.cl_ppf[ell]+(nhl[ell] * self.qnorm[ell] ** 2))
         fl[0] = 0
+        fl[1] = 0
         return fl   
     
     def qlm_wf(self,idx):
@@ -130,8 +133,8 @@ class Delensing:
         return walpha
     
     def get_template(self,idx):
-        filename = [os.path.join(self.lib_dir,f"sim_template_{self.key}_{idx:04d}_Q.fits"),
-                    os.path.join(self.lib_dir,f"sim_template_{self.key}_{idx:04d}_U.fits")]
+        filename = [os.path.join(self.lib_dir,f"sim_template_{self.of_by}_{self.key}_{idx:04d}_Q.fits"),
+                    os.path.join(self.lib_dir,f"sim_template_{self.of_by}_{self.key}_{idx:04d}_U.fits")]
         if os.path.isfile(filename[0]) and os.path.isfile(filename[1]):
             return hp.read_map(filename[0],verbose=self.verbose), hp.read_map(filename[1],verbose=self.verbose)
         
@@ -154,8 +157,8 @@ class Delensing:
         return self.sims.get_sim_pmap(idx)
     
     def get_delensed_field(self,idx):
-        filename = [os.path.join(self.lib_dir,f"sim_delens_{self.key}_{idx:04d}_Q.fits"),
-                    os.path.join(self.lib_dir,f"sim_delens_{self.key}_{idx:04d}_U.fits")]
+        filename = [os.path.join(self.lib_dir,f"sim_delens_{self.of_by}_{self.key}_{idx:04d}_Q.fits"),
+                    os.path.join(self.lib_dir,f"sim_delens_{self.of_by}_{self.key}_{idx:04d}_U.fits")]
         if os.path.isfile(filename[0]) and os.path.isfile(filename[1]):
             return hp.read_map(filename[0]), hp.read_map(filename[1])
         
@@ -342,7 +345,7 @@ class Efficency:
 
 class Pseudo_cl:
     
-    def __init__(self,lib_dir,delens_lib,maskpre,fwhm,purify_b,nside,fsky,binsize,apo_scale,apo_method):
+    def __init__(self,lib_dir,delens_lib,maskpre,fwhm,purify_b,nside,fsky,binsize,apo_scale,apo_method,of_by):
         
         self.delens_lib = delens_lib
         self.nside = nside
@@ -357,7 +360,8 @@ class Pseudo_cl:
             self.beam = None
         else: 
             self.beam = hp.gauss_beam(np.radians(float(self.fwhm)/60),lmax=self.b.lmax)
-    
+        
+        self.of_by = of_by
         
         self.maskpath = f"{maskpre}_Nside{nside}_fsky_{self.fsky}_Apo_{apo_method}_Deg_{int(apo_scale)}.fits"
         self.mask = hp.read_map(self.maskpath,dtype=np.float64)
@@ -403,7 +407,7 @@ class Pseudo_cl:
         if which == 'lensed':
             filename = os.path.join(self.cls_dir,f"sims_{which}_fsky_{self.fsky}_beam_{self.fwhm}_Apo_{self.apo_method}_Deg_{self.apo_scale}_{idx:04d}.pkl")
         else:
-            filename = os.path.join(self.cls_dir,f"sims_{which}_fsky_{self.fsky}_beam_{self.fwhm}_Apo_{self.apo_method}_Deg_{self.apo_scale}_{self.delens_lib.key}_{idx:04d}.pkl")
+            filename = os.path.join(self.cls_dir,f"sims_{self.of_by}_{which}_fsky_{self.fsky}_beam_{self.fwhm}_Apo_{self.apo_method}_Deg_{self.apo_scale}_{self.delens_lib.key}_{idx:04d}.pkl")
         if os.path.isfile(filename):
             return pk.load(open(filename, 'rb'))
         else:

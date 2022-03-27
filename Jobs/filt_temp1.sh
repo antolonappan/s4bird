@@ -1,23 +1,23 @@
 #!/bin/bash
 #SBATCH --qos=regular
 #SBATCH --constraint=haswell
-#SBATCH --nodes=1
-#SBATCH --ntasks=7
+#SBATCH --nodes=100
+#SBATCH --ntasks=1000
 #SBATCH --cpus-per-task=1
-#SBATCH -J Filtering Temp
+#SBATCH -J FilteringTemp1
 #SBATCH -o out/filt_temp1.out
 #SBATCH -e out/filt_temp1.err
-#SBATCH --time=01:20:00
+#SBATCH --time=04:00:00
 #SBATCH --mail-type=begin,end,fail
 #SBATCH --mail-user=anto.lonappan@sissa.it
 
 
 source /global/homes/l/lonappan/.bashrc
 conda activate PC2
-cd /global/u2/l/lonappan/workspace/New_s4bird/s4bird
+cd /global/u2/l/lonappan/workspace/s4bird/s4bird
 
-export ini=litebird1.ini
+export ini=cmbs4_1.ini
 
 
-mpirun -np $SLURM_NTASKS python libparam.py $ini -ivt -missing
+mpirun -np $SLURM_NTASKS python quest.py $ini -ivt
 

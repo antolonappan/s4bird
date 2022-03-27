@@ -16,7 +16,7 @@ source /global/homes/l/lonappan/.bashrc
 
 conda activate PC2
 
-cd /global/u2/l/lonappan/workspace/New_s4bird/s4bird
+cd /global/u2/l/lonappan/workspace/s4bird/s4bird
 
 export ini=delensing3.ini
 

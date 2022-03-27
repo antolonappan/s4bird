@@ -7,7 +7,7 @@ from plancklens import utils
 import argparse
 from noise import NoiseMap_s4_LAT
 
-ini_dir = '/global/u2/l/lonappan/workspace/New_s4bird/s4bird/ini_new/'
+ini_dir = '/global/u2/l/lonappan/workspace/s4bird/s4bird/ini/'
 
 
 parser = argparse.ArgumentParser(description='ini')
@@ -61,7 +61,8 @@ cl_base = fid_config['base']
 
 if args.map_exp:
     exp_map = SimExperiment(input_mappath,map_path,nside,maskfile,beam,nlev_t,nlev_p,n_sims,noise_folder,bool(noise_do_red))
-    exp_map.run_job()
+    #exp_map.run_job()
+    exp_map.noise_model.run_job(alms=True)
 mpi.barrier()
 
 if args.map_lensed:

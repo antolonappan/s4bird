@@ -190,8 +190,10 @@ class SimExperiment:
         self.noise_model = None
         
         if red_noise:
+            print("Noise Model: 1/f")
             self.noise_model =  NoiseMap_s4_LAT(noise_folder,self.nside,self.n_sim)
         else:
+            print("Noise Model: white")
             self.noise_model = NoiseMap_LB_white(noise_folder,self.nside,self.nlev_t,self.nlev_p,self.n_sim)
             
         if mpi.rank == 0:
