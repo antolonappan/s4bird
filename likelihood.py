@@ -110,7 +110,9 @@ class Delens_Theory:
         
     @property
     def N0(self):
-        N0 = self.n0[:self.lmax+1]
+        N0 = np.zeros(len(self.DL))
+        N0[:len(self.n0)] = self.n0
+        
         return self.DL*N0
         
     @property    

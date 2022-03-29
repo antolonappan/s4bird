@@ -11,9 +11,14 @@ from quest import FilteringAndQE
 class DelensAndCl:
     def __init__(self,ini):
         ini_dir = '/global/u2/l/lonappan/workspace/s4bird/s4bird/ini/'
-        ini_file = os.path.join(ini_dir,ini)
-
-        config = toml.load(ini_file)
+        
+        if type(ini) == str:
+            ini_file = os.path.join(ini_dir,ini)
+            config = toml.load(ini_file)
+        elif type(ini) == dict:
+            config = ini
+            if list(config.keys()) != ['File','OF','BY','Delens','Pseudo_cl']:
+                raise ValueError("Insufficent keys in the given dict, I need ['File','OF','BY','Delens','Pseudo_cl'] configurations" )
 
 
 
