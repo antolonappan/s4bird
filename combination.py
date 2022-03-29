@@ -58,9 +58,9 @@ class Experiment:
                 raise NotImplementedError
             mpi.barrier()
             data = self.get_noise_alm_beam_deconv(mpi.rank)
-            tlm = data[0]
-            elm = data[1]
-            blm = data[2]
+            tlm = np.abs(data[0])**2
+            elm = np.abs(data[1])**2
+            blm = np.abs(data[2])**2
 
             if mpi.rank == 0:
                 total_tlm = np.zeros_like(tlm)
@@ -86,7 +86,7 @@ class W:
         self.second = second
 
     def weight(self,nlm):
-        return np.nan_to_num(np.abs(1/nlm**2))
+        return np.nan_to_num(1/nlm)
 
     def get_w(self):
         w1 = self.weight(self.first)
@@ -102,6 +102,7 @@ class Combine:
         map_conf = config["Map"]
         self.set = int(map_conf['set'])
         self.nsims = int(map_conf['nsims'])
+        self.beam = np.radians(float(map_conf['beam'])/60)
         self.filebase = os.path.join(file_conf['base_folder'],
                                      file_conf['base_name'],
                                      f"SIM_SET{self.set}",
@@ -164,9 +165,9 @@ class Combine:
     def deconv_map(self,path,beamsize):
         beam = hp.gauss_beam(np.radians(beamsize/60),lmax=6143,pol=True).T
         alms = hp.read_alm(path,(1,2,3))
-        hp.almxfl(alms[0],beam[0],inplace=True)
-        hp.almxfl(alms[1],beam[1],inplace=True)
-        hp.almxfl(alms[2],beam[2],inplace=True)
+        hp.almxfl(alms[0],utils.cli(beam[0]),inplace=True)
+        hp.almxfl(alms[1],utils.cli(beam[1]),inplace=True)
+        hp.almxfl(alms[2],utils.cli(beam[2]),inplace=True)
         del beam
         return alms
     def deconv_map_and_apply_mask(self,path,beamsize):
@@ -174,9 +175,9 @@ class Combine:
         maps = hp.alm2map(hp.read_alm(path,(1,2,3)),nside=self.nside) * self.mask
         alms = hp.map2alm(maps)
         del maps
-        hp.almxfl(alms[0],beam[0],inplace=True)
-        hp.almxfl(alms[1],beam[1],inplace=True)
-        hp.almxfl(alms[2],beam[2],inplace=True)
+        hp.almxfl(alms[0],utils.cli(beam[0]),inplace=True)
+        hp.almxfl(alms[1],utils.cli(beam[1]),inplace=True)
+        hp.almxfl(alms[2],utils.cli(beam[2]),inplace=True)
         del beam
         return alms
     
@@ -213,8 +214,7 @@ class Combine:
             tlm = (alms1[0]*w_tlm_1) + (alms2[0]*w_tlm_2)
             elm = (alms1[1]*w_elm_1) + (alms2[1]*w_elm_2)
             blm = (alms1[2]*w_blm_1) + (alms2[2]*w_blm_2)
-            hp.write_alm(fname,[tlm,elm,blm])
-            return [tlm,elm,blm,]
+            hp.write_alm(fname,hp.smoothalm([tlm,elm,blm],fwhm=self.beam))
         
     def run_job(self):
         jobs = np.arange(self.nsims)
