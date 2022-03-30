@@ -110,9 +110,19 @@ class Delens_Theory:
         
     @property
     def N0(self):
-        N0 = np.zeros(len(self.DL))
-        N0[:len(self.n0)] = self.n0
+        len_n0 = len(self.n0)
+        len_dl = len(self.DL)
         
+        if len_n0 > len_dl:
+            N0 = self.n0[:len_dl]
+        elif len_n0 < len_dl:
+            N0 = np.zeros(len_dl)
+            N0[:len_n0] = self.n0
+        elif len_n0 == len_dl:
+            N0 = self.n0
+        else:
+            print("I don't know what to do")
+            
         return self.DL*N0
         
     @property    

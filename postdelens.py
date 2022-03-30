@@ -65,3 +65,7 @@ class Stat:
             samples = LH_simple(self.mc.delensed_cov_fid,nsamples,self.theory,self.DC2.pseudocl_lib.b,self.lmin,self.lmax,'delensed').posterior(self.mc.debiased_w_mc.mean(axis=0))
             pk.dump(samples,open(fname,'wb'))
             return samples
+        
+        
+def get_efficency(lensed,delensed):
+    return np.round_(100*(1 - np.mean(delensed/lensed)),2)
