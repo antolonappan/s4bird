@@ -6,7 +6,7 @@ from copy import deepcopy
 from delens import DelensAndCl
 from covariance import MeanAndCovariance
 from likelihood import Delens_Theory
-from likelihood import LH_simple2 as LH_simple
+from likelihood import LH_simple3 as LH_simple
 
 
 class Stat:
@@ -21,7 +21,7 @@ class Stat:
         ini_dic = toml.load(inif)
 
         dir_base = os.path.join(ini_dic['File']['base_folder'],ini_dic['File']['base_name'],'Stats')
-        self.lib_dir = os.path.join(dir_base,f"S_{self.lmin}{self.lmax}")
+        self.lib_dir = os.path.join(dir_base,f"S_{self.lmin}{self.lmax}_{ini_dic['Delens']['template']}")
         
         
         if do_ini:
@@ -53,7 +53,7 @@ class Stat:
         if os.path.isfile(fname):
             return pk.load(open(fname,'rb'))
         else:
-            samples = LH_simple(self.mc.lensed_cov_fid,nsamples,self.theory,self.DC2.pseudocl_lib.b,self.lmin,self.lmax,'lensed').posterior(self.mc.get_biased('lensed').mean(axis=0))
+            samples = LH_simple(self.mc,self.theory,self.lmin,self.lmax,'lensed').posterior(self.mc.get_biased('lensed').mean(axis=0))
             pk.dump(samples,open(fname,'wb'))
             return samples
     
@@ -62,7 +62,7 @@ class Stat:
         if os.path.isfile(fname):
             return pk.load(open(fname,'rb'))
         else:
-            samples = LH_simple(self.mc.delensed_cov_fid,nsamples,self.theory,self.DC2.pseudocl_lib.b,self.lmin,self.lmax,'delensed').posterior(self.mc.debiased_w_mc.mean(axis=0))
+            samples = LH_simple(self.mc,self.theory,self.lmin,self.lmax,'delensed').posterior(self.mc.debiased_wo_mc.mean(axis=0))
             pk.dump(samples,open(fname,'wb'))
             return samples
         

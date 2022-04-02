@@ -53,11 +53,16 @@ class DelensAndCl:
         sims = of_fqe.sims
 
         if delens_config['template']=='of':
-            ivfs_raw = of_fqe.ivfs_raw
+            ivfs = of_fqe.ivfs
             print(f"Template is constructed using {of_fqe.base}-SET{of_fqe.sim_set}")
         elif delens_config['template']=='by':
-            ivfs_raw = by_fqe.ivfs_raw
-            print(f"Template is constructed using {by_fqe.base}-SET{by_fqe.sim_set}")
+            if (of_config['ini'] != by_config['ini']) and (of_config['set'] != by_config['set']):
+                by_fqe_special = FilteringAndQE(os.path.join(ini_dir,by_config['ini']),int(of_config['set']))
+                ivfs = by_fqe_special.ivfs
+                print(f"Template is constructed using {by_fqe.base}-SET{by_fqe_special.sim_set}")
+            else:
+                ivfs= by_fqe.ivfs
+                print(f"Template is constructed using {by_fqe.base}-SET{by_fqe.sim_set}")
         else:
             raise ValueError
 
@@ -73,7 +78,7 @@ class DelensAndCl:
         maskpaths = by_fqe.maskpaths
         qe_key = by_fqe.qe_key
 
-        self.delens_lib = Delensing(delens_path,sims,ivfs_raw,qlms_dd,qresp_dd,nhl_dd,n_sims,lmax_qlm,cl_unl['pp'],nside,maskpaths[0],qe_key,delens_config['template'],transf=transf_of,save_template=False,verbose=False)
+        self.delens_lib = Delensing(delens_path,sims,ivfs,qlms_dd,qresp_dd,nhl_dd,n_sims,lmax_qlm,cl_unl['pp'],nside,maskpaths[0],qe_key,delens_config['template'],transf=transf_of,save_template=False,verbose=False)
 
         pcl_dir = pseudo_cl_config['folder']
         pcl_beam = pseudo_cl_config['beam']

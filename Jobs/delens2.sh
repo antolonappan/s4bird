@@ -3,7 +3,7 @@
 #SBATCH --constraint=haswell
 #SBATCH --nodes=64
 #SBATCH --ntasks=1000
-#SBATCH --cpus-per-task=1
+#SBATCH --cpus-per-task=2
 #SBATCH -J Delensing2
 #SBATCH -o out/delens2.out
 #SBATCH -e out/delens2.err

@@ -857,3 +857,116 @@ class LH_HL2(LH_base2):
         vec = self.vect(theta,i)
         l = np.dot(np.dot(vec,self.cov_inv),vec)
         return  l
+
+class LH_base3:
+    
+    def __init__(self,MC,theory,lmin,lmax,which):
+        self.MC = MC
+        
+        self.theory = theory
+        self.tensor_bb = self.theory.tensor_bb
+        self.lensed_bb = self.MC.get_unbiased('lensed').mean(axis=0)
+        self.delensed_bb = self.MC.get_unbiased('delensed').mean(axis=0)
+        self.b = self.MC.unbiased.pseudocl_lib.b
+        ell = self.b.get_effective_ells()
+        self.select = np.where((ell>lmin) & (ell<lmax))[0]
+        self.ell = ell[self.select]
+        self.which = which
+        if self.which == 'lensed':
+            self.cov = self.MC.lensed_cov_fid
+        elif self.which == 'delensed':
+            self.cov = self.MC.delensed_cov_fid
+        else:
+            raise ValueError('which = lensed/delensed')
+        self.cov_inv = np.linalg.inv(self.cov)
+        
+    
+    def chi_sq(self):
+        pass
+    
+    def cl_fid_lensed(self,r):
+        tensor = r * self.tensor_bb
+        tensor_binned = self.b.bin_cell(tensor[:self.b.lmax+1])
+        total_spectra = tensor_binned + self.lensed_bb
+        return total_spectra[self.select]
+    
+    def cl_fid_delensed(self,r):
+        tensor = r * self.tensor_bb
+        tensor_binned = self.b.bin_cell(tensor[:self.b.lmax+1])
+        total_spectra = tensor_binned + self.delensed_bb
+        return total_spectra[self.select]
+    
+    def cl_fid(self,r):
+        if self.which == 'lensed':
+            return self.cl_fid_lensed(r)
+        else:
+            return self.cl_fid_delensed(r)
+        
+            
+        
+        
+    def log_prior(self,theta):
+        r= theta
+        if  -0.5 < r < 0.5:
+            return 0.0
+        return -np.inf
+
+    def log_probability(self,theta,i):
+        lp = self.log_prior(theta)
+        if not np.isfinite(lp):
+            return -np.inf
+        return lp  -.5*self.chi_sq(theta,i)
+    
+
+    def posterior(self,i,nsamples=2000):
+        pos = np.array([0]) + 1e-4 * np.random.randn(100, 1)
+        nwalkers, ndim = pos.shape
+        sampler = emcee.EnsembleSampler(nwalkers, ndim, self.log_probability,kwargs={'i':i})
+        sampler.run_mcmc(pos, nsamples,progress=True)
+        flat_samples = sampler.get_chain(discard=100, thin=15, flat=True)
+        return flat_samples
+    
+    def report(self,i):
+        samples = i
+        cut_samples = samples[samples > 0]
+        with suppress_stdout():
+            cut_samp = MCSamples(samples=cut_samples,names=['r'], labels=['r'],ranges={'r':(0, None)})
+            return cut_samp.getInlineLatex('r',limit=1,err_sig_figs=5)
+
+    def sigma_r(self,i):
+        samples = self.posterior(i)
+        cut_samples = samples[samples > 0]
+        with suppress_stdout():
+            cut_samp = MCSamples(samples=cut_samples,names=['r'], labels=['r'],ranges={'r':(0, None)})
+            return cut_samp.getInlineLatex('r',limit=1,err_sig_figs=5)   
+        
+
+        
+    def plot_spectra(self,i):
+        plt.loglog(self.ell,self.cl_theory_lensed(0),label='theoryL')
+        plt.loglog(self.ell,self.cl_theory_delensed(0),label='theoryD')
+        plt.errorbar(self.ell,i[self.select],yerr=np.sqrt(np.diag(self.cov)),label='spectra')
+        plt.legend()
+    
+    def plot_posterior(self,i):
+        labels = ["r"]
+        flat_samples = self.posterior(i)
+        print(self.report(flat_samples))
+        plt.figure(figsize=(8,8))
+        fig = corner.corner(flat_samples, labels=labels,truths=[0] )
+        
+class LH_simple3(LH_base3):
+
+    def __init__(self,MC,theory,lmin,lmax,which):
+        super().__init__(MC,theory,lmin,lmax,which)
+    
+    def vect(self,theta,i):
+        r = theta
+        cl_th = self.cl_fid(r) 
+
+        return cl_th - i[self.select]
+    
+    def chi_sq(self,theta,i):
+        vec = self.vect(theta,i)
+        l = np.dot(np.dot(vec,self.cov_inv),vec)
+        return  l
