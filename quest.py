@@ -28,6 +28,9 @@ class FilteringAndQE:
         file_config = config['File']
         map_config = config['Map']
         fid_config = config['Fiducial']
+        fg_config = config['Foreground']
+
+
 
         # QE CONFIG
         lmax_ivf = qe_config['lmax_ivf']
@@ -56,9 +59,13 @@ class FilteringAndQE:
         workbase = file_config['base_folder']
         pathbase = os.path.join(workbase,base)
 
-
-
-        path_final = os.path.join(pathbase,f"SIM_SET{sim_set}")        
+        
+        do_fg = bool(fg_config['do']) if sim_set is 1 else False
+        
+        if do_fg:
+            path_final = os.path.join(pathbase,f"SIM_SET{sim_set}_FG")  
+        else:
+            path_final = os.path.join(pathbase,f"SIM_SET{sim_set}")  
         map_path = os.path.join(path_final,'Maps')
 
         # CL CONFIG
@@ -118,6 +125,13 @@ class FilteringAndQE:
         
         qcls_dd = qecl.library(os.path.join(TEMP, 'qcls_dd'), qlms_dd, qlms_dd, np.arange(400,1000))
         self.qcls_dd = qcls_dd
+        
+        # ss_dict = { k : v for k, v in zip( np.concatenate( [ range(i*60, (i+1)*60) for i in range(0,5) ] ),
+        #             np.concatenate( [ np.roll( range(i*60, (i+1)*60), -1 ) for i in range(0,5) ] ) ) }
+        # ivfs_s = filt_util.library_shuffle(ivfs, ss_dict)
+        # qlms_ss = qest.library_sepTP(os.path.join(TEMP, 'qlms_ss'), ivfs,ivfs_s, cl_len['te'], nside,lmax_qlm=lmax_qlm)
+        # qcls_ss = qecl.library(os.path.join(TEMP, 'qcls_ss'), qlms_ss, qlms_ss,np.array([]))
+        # self.qcls_ss = qcls_ss
 
 
 if __name__ == "__main__":
@@ -130,6 +144,7 @@ if __name__ == "__main__":
     parser.add_argument('-missing', dest='missing',action='store_true', help='only do missing')
     parser.add_argument('-set',dest='set',action='store',type=int,default=None)
     parser.add_argument('-dd', dest='dd', action='store_true', help='perform dd qlms')
+    parser.add_argument('-qclss', dest='qclss', action='store_true', help='perform qcls ss')
     args = parser.parse_args()
     ini = args.inifile[0]
     
@@ -175,3 +190,9 @@ if __name__ == "__main__":
             print(f"Making QE-{i} in Processor-{mpi.rank}")
             qlm = fqe.qlms_dd.get_sim_qlm(fqe.qe_key,i)
             del qlm
+            
+    if args.qclss:
+        for i in jobs[mpi.rank::mpi.size]:
+            print(f"Making qcls-{i} in Processor-{mpi.rank}")
+            qcls = fqe.qcls_ss.get_sim_qcl(fqe.qe_key,i)
+            del qcls

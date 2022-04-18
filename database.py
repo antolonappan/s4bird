@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 from sqlalchemy import create_engine
 
 class surveys:
@@ -6,7 +7,7 @@ class surveys:
     def __init__(self, database='/global/u2/l/lonappan/workspace/s4bird/s4bird/Data/surveys.db'):
         
         self.database = database
-        self.engine = create_engine(f'sqlite:///{self.database}', echo=True)
+        self.engine = create_engine(f'sqlite:///{self.database}', echo=False)
         self.tables = self.engine.table_names()
         
     
@@ -24,5 +25,15 @@ class surveys:
         df.to_sql(table,connection)
         connection.close()
         
+    def write_table_df(self,df,table):
+        connection = self.engine.connect()
+        df.to_sql(table,connection)
+        connection.close()
 
-        
+def arc2cl(arc):
+    return np.radians(arc/60)**2
+def cl2arc(cl):
+    return np.rad2deg(np.sqrt(cl))*60
+
+def noise(arr):
+    return cl2arc(1/sum(1/arc2cl(arr)))

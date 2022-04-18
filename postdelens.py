@@ -45,6 +45,7 @@ class Stat:
             dict_i = deepcopy(dic)
             dict_i['OF']['set'] = of
             dict_i['BY']['set'] = by
+            
             dicts.append(dict_i)
         return dicts
     

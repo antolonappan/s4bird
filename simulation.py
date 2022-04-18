@@ -12,6 +12,9 @@ import pysm3.units as u
 from helper import clhash,hash_check
 import lenspyx
 from lenspyx.utils import camb_clfile,camb_clfile2
+from database import surveys
+from fgbuster import harmonic_ilc_alm,CMB
+from tqdm import tqdm
 
 class s4bird_simbase(object):
 
@@ -116,63 +119,102 @@ class s4bird_sims_general(s4bird_simbase):
     
 
     
-class GaussSim:
+class SimExperimentFG:
     
-    __slots__ = ["Cls","outfolder","nside","n_sim","seeds"]
-    
-    def __init__(self,cl_folder,cl_base,outfolder,nside,n_sim,seed_file=None):
-        cl_file = os.path.join(cl_folder,f"{cl_base}_lensedCls.dat")
-        print(f"Using {cl_file}")
-        cl_len = utils.camb_clfile(cl_file)
-        
-        
-        
-        self.Cls = [cl_len['tt'],cl_len['ee'],cl_len['bb'],cl_len['te']*0]
+    def __init__(self,infolder,outfolder,dnside,maskpath,fwhm,fg_dir,fg_str,table):
+        self.infolder = infolder
         self.outfolder = outfolder
-        self.nside = nside
-        self.n_sim = n_sim
+        self.mask = hp.ud_grade(hp.read_map(maskpath,verbose=False),dnside)
+        self.lmax = (3*dnside)-1
+        self.fwhm = np.radians(fwhm/60)
+        self.fg_dir = fg_dir
+        self.fg_str = fg_str
+        self.table = surveys().get_table_dataframe(table)
+        self.dnside = dnside
+        
         if mpi.rank == 0:
             os.makedirs(self.outfolder,exist_ok=True)
-            
-        fname = os.path.join(self.outfolder,'seeds.pkl')
-        seeds = [np.random.randint(11111,99999) for i in range(self.n_sim)]
+        print(f"using {self.infolder} and {self.fg_dir} saving to {self.outfolder}")
         
-        if (not os.path.isfile(fname)) and (mpi.rank == 0) and (seed_file == None):
-            pk.dump(seeds, open(fname,'wb'), protocol=2)
-        elif (os.path.isfile(fname)) and (mpi.rank==0):
-            if len(pk.load(open(fname,'rb'))) != self.n_sim:
-                print('The No of simulation is different from the No of seeds: Rewriting Seeds')
-                pk.dump(seeds, open(fname,'wb'), protocol=2)
-        else:
-            pass
-            
+    def get_cmb(self,idx):
+        fname = os.path.join(self.infolder,f"cmb_sims_{idx:04d}.fits")
+        return hp.ud_grade(hp.read_map(fname,(0,1,2)),self.dnside)
+
+    def get_fg(self,v):
+        fname = os.path.join(self.fg_dir,f"{self.fg_str}_{int(v)}.fits")
+        return hp.ud_grade(hp.read_map(fname,(0,1,2)),self.dnside)
+
+
+    def get_noise(self,depth_i,depth_p):
+        n_pix = hp.nside2npix(self.dnside)
+        res = np.random.normal(size=(n_pix, 3))
+        depth = np.stack((depth_i, depth_p, depth_p))
+        depth *= u.arcmin * u.uK_CMB
+        depth = depth.to(
+            getattr(u, 'uK_CMB') * u.arcmin,
+            equivalencies=u.cmb_equivalencies(0 * u.GHz))
+        res *= depth.value / hp.nside2resol(self.dnside, True)
+        return  res.T
+
+    def get_total_alms(self,idx,v,n_t,n_p,beam):
+        maps = hp.smoothing(self.get_cmb(idx)+self.get_fg(v),fwhm=np.radians(beam/60.)) + self.get_noise(n_t,n_p)
+        alms = hp.map2alm(maps*self.mask)
+        del maps
+        beam = hp.gauss_beam(np.radians(beam/60),lmax=self.lmax,pol=True).T
+        hp.almxfl(alms[0],1/beam[0],inplace=True)
+        hp.almxfl(alms[1],1/beam[1],inplace=True)
+        hp.almxfl(alms[2],1/beam[2],inplace=True)
+        return alms
+        
+
+    def get_alms_arr(self,idx,v,n_t,n_p,beam):
+        arr = []
+        for i in tqdm(range(len(v)),desc="Making alms",unit='Freq'):
+            arr.append(self.get_total_alms(idx,v[i],n_t[i],n_p[i],beam[i]))
+        return np.array(arr)
     
-        mpi.barrier()
-        
-        
-        if seed_file != None:
-            print(f"Simulations use a seed file:{seed_file}")
-            fname = seed_file
-            
-        self.seeds = pk.load(open(fname,'rb'))
-
-    def make_map(self,idx):
-        fname = os.path.join(self.outfolder,f"cmbonly_{idx}.fits")
+    def get_comp_sep_alm(self,idx):
+        fname = os.path.join(self.outfolder,f"exp_sims_{idx:04d}.fits")
         if os.path.isfile(fname):
-            print(f"{fname} already exist")
+            return hp.read_alm(fname,(1,2,3))
         else:
-            np.random.seed(self.seeds[idx])
-            maps = hp.synfast(self.Cls,nside=self.nside,new=True)
-            hp.write_map(fname,maps)
-            del maps
+            freqs = np.array(self.table.frequency)
+            fwhm = np.array(self.table.fwhm)
+            nlev_p = np.array(self.table.depth_p)
+            nlev_t = nlev_p/np.sqrt(2)
+            alms = self.get_alms_arr(idx,freqs,nlev_t,nlev_p,fwhm)
+            instrument = INST(None,freqs)
+            components = [CMB()]
+            bins = np.arange(1000) * 10
+            result = harmonic_ilc_alm(components, instrument,alms,bins)
+            del alms
+            alms = hp.smoothalm([result.s[0][0], result.s[0][1],result.s[0][2]],fwhm=self.fwhm)
+            del result
+            hp.write_alm(fname,alms)
+            return alms
         
-    def run_job(self):
-        jobs = np.arange(self.n_sim)
+    def run_job(self,nsim):
+        jobs = np.arange(nsim)
         for i in jobs[mpi.rank::mpi.size]:
-            print(f"Making map-{i} in processor-{mpi.rank}")
-            self.make_map(i)        
+            print(f"Component sep-{i} in processor-{mpi.rank}")
+            self.get_comp_sep_alm(i)            
+    
 
-            
+        
+
+
+
+class INST:
+    
+    def __init__(self,beam,frequency):
+        self.Beam = beam
+        self.fwhm = beam
+        self.frequency = frequency
+        
+        
+        
+        
+    
 class SimExperiment:
     
     __slots__ = ["infolder","outfolder","nside","mask","fwhm","nlev_t","nlev_p","n_sim","red_noise","noise_model"]
@@ -226,94 +268,7 @@ class SimExperiment:
             print(f"Making map-{i} in processor-{mpi.rank}")
             self.make_map(i)
             
-class CMBLensed_old:
-    
-    def __init__(self,outfolder,nside,cl_folder,base,n_sim,seed_file=None,prefix='cmbonly_'):
-        
-        self.outfolder = outfolder
-        self.cl_folder = cl_folder
-        self.base = base
-        self.nside = nside
-        self.prefix = prefix
-        self.n_sim = n_sim
-        self.seed_file = seed_file
-        
-        
-        if mpi.rank == 0:
-            os.makedirs(self.cl_folder,exist_ok=True)
-            os.makedirs(self.outfolder,exist_ok=True)
-            
 
-            
-            if len(os.listdir(self.cl_folder))  < 2:
-                print('Cl folder is Empty, Trying to execute CAMB')
-                src = '/global/u2/l/lonappan/workspace/S4bird/ini/CAMB.ini'
-                dst = f"{self.cl_folder}/CAMB.ini"
-                print('    Coping Template')
-                copyfile(src,dst)
-                print('    Copied sucessfully')
-                print('    Setting Output folder')
-                with open(dst) as f:
-                    lines = f.readlines()
-                    
-                lines[0] = f"output_root = {self.cl_folder}/{self.base}\n"
-                with open(dst, "w") as f:
-                    f.writelines(lines)
-                
-                print('    Executing CAMB')
-                camb.run_ini(dst)
-                print('    Cls Generated')
-            else:
-                print("Found Cls, Trying to use that")
-                
-        seeds = [np.random.randint(11111,99999) for i in range(self.n_sim)]
-
-        fname = os.path.join(self.outfolder,'seeds.pkl')
-        if (not os.path.isfile(fname)) and (mpi.rank == 0) and (seed_file == None):
-            pk.dump(seeds, open(fname,'wb'), protocol=2)
-        elif (os.path.isfile(fname)) and (mpi.rank==0):
-            if len(pk.load(open(fname,'rb'))) != self.n_sim:
-                print('The No of simulation is different from the No of seeds: Rewriting Seeds')
-                pk.dump(seeds, open(fname,'wb'), protocol=2)
-        else:
-            pass
-        
-        mpi.barrier()
-        
-        
-        if seed_file != None:
-            print(f"Simulations use a seed file:{seed_file}")
-            fname = seed_file
-        self.seeds = pk.load(open(fname,'rb'))
-    
-    def sky(self,idx):
-        cl_fname = os.path.join(self.cl_folder,f"{self.base}_lenspotentialCls.dat")
-        cfg = {'c1':
-                   {"class":"CMBLensed",
-                    "cmb_spectra":f"{cl_fname}",
-                    "cmb_seed" : self.seeds[idx]
-                    }
-                }
-        return pysm.Sky(self.nside,component_config=cfg)
-    
-    def make_map(self,idx):
-        fname = os.path.join(self.outfolder,f"{self.prefix}{idx}.fits")
-        if os.path.isfile(fname):
-            print(f"{fname} already exist")
-        else:
-            sky = self.sky(idx)
-            maps = sky.get_emission(150 * u.GHz)
-            maps_cmb = maps.to(u.uK_CMB, equivalencies=u.cmb_equivalencies(150*u.GHz))
-            del maps
-            hp.write_map(fname, maps_cmb)
-            del maps_cmb
-        
-    
-    def run_job(self):
-        jobs = np.arange(self.n_sim)
-        for i in jobs[mpi.rank::mpi.size]:
-            print(f"Making map-{i} in processor-{mpi.rank}")
-            self.make_map(i) 
         
         
     

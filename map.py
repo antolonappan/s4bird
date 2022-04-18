@@ -1,4 +1,4 @@
-from simulation import GaussSim, SimExperiment, CMBLensed, CMBLensed_old
+from simulation import SimExperiment, CMBLensed, SimExperimentFG
 import os
 import toml
 import numpy as np
@@ -28,7 +28,9 @@ config = toml.load(ini_file)
 map_config = config['Map']
 file_config = config['File']
 fid_config = config['Fiducial']
+fg_config = config['Foreground']
 
+do_fg = bool(fg_config['do'])
 
 base = file_config['base_name']
 workbase = file_config['base_folder']
@@ -45,7 +47,11 @@ pathbase = os.path.join(workbase,base)
 
 
 raw_mappath = os.path.join(workbase,map_config['folder'])
-map_path = os.path.join(pathbase,f"SIM_SET{sim_set}",'Maps')
+
+if do_fg:
+    map_path = os.path.join(pathbase,f"SIM_SET{sim_set}_FG",'Maps')
+else:
+    map_path = os.path.join(pathbase,f"SIM_SET{sim_set}",'Maps')
 
 input_mappath = os.path.join(raw_mappath,f"CMB_SET{sim_set}")
 
@@ -57,12 +63,18 @@ cl_folder = os.path.join(workbase,fid_config['folder'])
 cl_base = fid_config['base']
 
 
+fg_dir = os.path.join(workbase,fg_config['folder'])
+fg_str = fg_config['model']
+fg_nside = fg_config['nside']
+fg_table = fg_config['table']
 
 
 if args.map_exp:
-    exp_map = SimExperiment(input_mappath,map_path,nside,maskfile,beam,nlev_t,nlev_p,n_sims,noise_folder,bool(noise_do_red))
-    #exp_map.run_job()
-    exp_map.noise_model.run_job(alms=True)
+    if do_fg:
+        exp_map = SimExperimentFG(input_mappath,map_path,fg_nside,maskfile,beam,fg_dir,fg_str,fg_table)
+    else:
+        exp_map = SimExperiment(input_mappath,map_path,nside,maskfile,beam,nlev_t,nlev_p,n_sims,noise_folder,bool(noise_do_red))
+    exp_map.run_job(n_sims)
 mpi.barrier()
 
 if args.map_lensed:
