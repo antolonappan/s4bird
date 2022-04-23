@@ -4,7 +4,7 @@ from plancklens.helpers import mpi
 from library import Delensing, Pseudo_cl, Efficency
 import toml
 from quest import FilteringAndQE
-
+from glob import glob
 
 
 
@@ -39,9 +39,14 @@ class DelensAndCl:
         by_fqe = FilteringAndQE(os.path.join(ini_dir,by_config['ini']),int(by_config['set']))
         print(f"Delensing {of_fqe.base}-SET{of_fqe.sim_set} with {by_fqe.base}-SET{by_fqe.sim_set}")
 
-
-
-        path_final = os.path.join(pathbase,f"SIM_SET{of_fqe.sim_set}")   
+        assert of_fqe.do_fg == by_fqe.do_fg
+        self.do_fg = of_fqe.do_fg
+        
+        if self.do_fg:
+            path_final = os.path.join(pathbase,f"SIM_SET{of_fqe.sim_set}_FG") 
+        else:
+            path_final = os.path.join(pathbase,f"SIM_SET{of_fqe.sim_set}")   
+        
 
         ############################################################
 
@@ -99,6 +104,7 @@ if __name__ == "__main__":
     parser.add_argument('inifile', type=str, nargs=1)
     parser.add_argument('-delens', dest='delens', action='store_true', help='do Delensing')
     parser.add_argument('-cl', dest='cl', action='store_true', help='perform psuedo cls')
+    parser.add_argument('-missing', dest='missing',action='store_true', help='only do missing')
     args = parser.parse_args()
     ini = args.inifile[0]
     
@@ -107,9 +113,22 @@ if __name__ == "__main__":
     dap = DelensAndCl(ini)
     
     jobs = np.arange(dap.n_sims)
+    if args.missing:
+        qfiles = glob(f"{dap.delens_lib.lib_dir}/*Q.fits")
+        ufiles = glob(f"{dap.delens_lib.lib_dir}/*U.fits")
+        m_p_idx = [int(qfile.split('_')[-2]) for qfile in qfiles]
+        m_p = [i for i in range(dap.n_sims) if i not in m_p_idx]
+        m_t_idx = [int(ufile.split('_')[-2]) for ufile in ufiles]
+        m_t = [i for i in range(dap.n_sims) if i not in m_t_idx]
+        print("Q missing idx:", m_p, f"Length:{len(m_p)}")
+        print("U missing idx:", m_t, f"Length:{len(m_t)}")
             
     if args.delens:
-         for i in jobs[mpi.rank::mpi.size]:
+        if args.missing:
+            jobs = np.array(m_t)
+            assert len(m_p) <= mpi.size
+            
+        for i in jobs[mpi.rank::mpi.size]:
             print(f"Delensing map-{i} in Processor-{mpi.rank}")
             QU = dap.delens_lib.get_delensed_field(i)
             del QU

@@ -1,7 +1,7 @@
 import os
 import numpy as np
 import healpy as hp
-from plancklens.helpers import mpi
+import mpi
 from plancklens import utils
 import pickle as pk
 from noise import NoiseMap_LB_white,  NoiseMap_s4_LAT
@@ -122,14 +122,27 @@ class s4bird_sims_general(s4bird_simbase):
 class SimExperimentFG:
     
     def __init__(self,infolder,outfolder,dnside,maskpath,fwhm,fg_dir,fg_str,table):
+        
         self.infolder = infolder
         self.outfolder = outfolder
-        self.mask = hp.ud_grade(hp.read_map(maskpath,verbose=False),dnside)
         self.lmax = (3*dnside)-1
         self.fwhm = np.radians(fwhm/60)
         self.fg_dir = fg_dir
         self.fg_str = fg_str
-        self.table = surveys().get_table_dataframe(table)
+        
+        if mpi.rank == 0:
+            table = surveys().get_table_dataframe(table)
+            mask = hp.ud_grade(hp.read_map(maskpath,verbose=False),dnside)
+        else:
+            table = None
+            mask = None
+        mpi.barrier()
+            
+        table = mpi.com.bcast(table, root=0)
+        mask = mpi.com.bcast(mask, root=0)
+        mpi.barrier()
+        self.mask = mask
+        self.table = table
         self.dnside = dnside
         
         if mpi.rank == 0:
@@ -192,6 +205,20 @@ class SimExperimentFG:
             del result
             hp.write_alm(fname,alms)
             return alms
+        
+    def get_weights(self,idx):
+        freqs = np.array(self.table.frequency)
+        fwhm = np.array(self.table.fwhm)
+        nlev_p = np.array(self.table.depth_p)
+        nlev_t = nlev_p/np.sqrt(2)
+        alms = self.get_alms_arr(idx,freqs,nlev_t,nlev_p,fwhm)
+        instrument = INST(None,freqs)
+        components = [CMB()]
+        bins = np.arange(1000) * 10
+        result = harmonic_ilc_alm(components, instrument,alms,bins)
+        w = result.W
+        pk.dump(w,open('weight.pkl','wb'))
+        return w
         
     def run_job(self,nsim):
         jobs = np.arange(nsim)

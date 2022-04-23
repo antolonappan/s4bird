@@ -74,7 +74,9 @@ if args.map_exp:
         exp_map = SimExperimentFG(input_mappath,map_path,fg_nside,maskfile,beam,fg_dir,fg_str,fg_table)
     else:
         exp_map = SimExperiment(input_mappath,map_path,nside,maskfile,beam,nlev_t,nlev_p,n_sims,noise_folder,bool(noise_do_red))
+    
     exp_map.run_job(n_sims)
+    
 mpi.barrier()
 
 if args.map_lensed:

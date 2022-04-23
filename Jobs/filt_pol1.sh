@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --qos=regular
+#SBATCH --qos=debug
 #SBATCH --constraint=haswell
 #SBATCH --nodes=64
 #SBATCH --ntasks=1000

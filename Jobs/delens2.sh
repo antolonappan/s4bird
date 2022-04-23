@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --qos=debug
 #SBATCH --constraint=haswell
-#SBATCH --nodes=64
-#SBATCH --ntasks=1000
+#SBATCH --nodes=50
+#SBATCH --ntasks=456
 #SBATCH --cpus-per-task=2
 #SBATCH -J Delensing2
 #SBATCH -o out/delens2.out
@@ -21,4 +21,4 @@ cd /global/u2/l/lonappan/workspace/s4bird/s4bird
 export ini=delensing2.ini
 
 #15 min
-mpirun -np $SLURM_NTASKS  python delens.py $ini -delens
+mpirun -np $SLURM_NTASKS  python delens.py $ini -delens -missing

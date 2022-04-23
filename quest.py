@@ -60,7 +60,9 @@ class FilteringAndQE:
         pathbase = os.path.join(workbase,base)
 
         
-        do_fg = bool(fg_config['do']) if sim_set is 1 else False
+        do_fg = bool(fg_config['do']) #if sim_set is 1 else False
+        
+        self.do_fg = do_fg
         
         if do_fg:
             path_final = os.path.join(pathbase,f"SIM_SET{sim_set}_FG")  
@@ -196,3 +198,6 @@ if __name__ == "__main__":
             print(f"Making qcls-{i} in Processor-{mpi.rank}")
             qcls = fqe.qcls_ss.get_sim_qcl(fqe.qe_key,i)
             del qcls
+            
+
+            

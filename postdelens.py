@@ -11,7 +11,7 @@ from likelihood import LH_simple3 as LH_simple
 
 class Stat:
     
-    def __init__(self,ini,lmin,lmax,do_ini=True):
+    def __init__(self,ini,lmin,lmax):
 
         ini_dir = '/global/u2/l/lonappan/workspace/s4bird/s4bird/ini/'
         inif = os.path.join(ini_dir,ini)
@@ -24,16 +24,17 @@ class Stat:
         self.lib_dir = os.path.join(dir_base,f"S_{self.lmin}{self.lmax}_{ini_dic['Delens']['template']}")
         
         
-        if do_ini:
-            DC1_,DC2_,DC3_ = self.__ini_gen__(ini_dic)
-            self.DC1 = DelensAndCl(DC1_)
-            self.DC2 = DelensAndCl(DC2_)
-            self.DC3 = DelensAndCl(DC3_)
+        DC1_,DC2_,DC3_ = self.__ini_gen__(ini_dic)
+        self.DC1 = DelensAndCl(DC1_)
+        self.DC2 = DelensAndCl(DC2_)
+        self.DC3 = DelensAndCl(DC3_)
+        
+        self.lib_dir = os.path.join(dir_base,f"S_{self.lmin}{self.lmax}_{ini_dic['Delens']['template']}_{str(self.DC1.do_fg)}")
 
-            camb_ini = '/global/cscratch1/sd/lonappan/S4BIRD/CAMB/BBSims_params.ini'
-            self.theory = Delens_Theory(camb_ini,self.DC2.pseudocl_lib.b.lmax,self.DC1.delens_lib.get_N0(0),30,2.16)
+        camb_ini = '/global/cscratch1/sd/lonappan/S4BIRD/CAMB/BBSims_params.ini'
+        self.theory = Delens_Theory(camb_ini,self.DC2.pseudocl_lib.b.lmax,self.DC1.delens_lib.get_N0(0),30,2.16)
 
-            self.mc = MeanAndCovariance(self.lib_dir,self.DC1,self.DC2,self.DC3,self.theory,self.lmin,self.lmax)
+        self.mc = MeanAndCovariance(self.lib_dir,self.DC1,self.DC2,self.DC3,self.theory,self.lmin,self.lmax)
 
     
     def __ini_gen__(self,dic):
