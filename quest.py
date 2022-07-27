@@ -116,7 +116,7 @@ class FilteringAndQE:
         fbl = np.ones(lmax_ivf + 1, dtype=float) * (np.arange(lmax_ivf + 1) >= lmin_ivf)
         ivfs   = filt_util.library_ftl(ivfs_raw, lmax_ivf, ftl, fel, fbl)
         self.ivfs = ivfs
-        qlms_dd = qest.library_sepTP(os.path.join(TEMP, 'qlms_dd'), ivfs, ivfs, cl_len['te'], nside, lmax_qlm=lmax_qlm)
+        qlms_dd = qest.library_sepTP(os.path.join(TEMP,  qe_config['qlmd_dir']), ivfs, ivfs, cl_len['te'], nside, lmax_qlm=lmax_qlm)
 
         self.qlms_dd = qlms_dd
         nhl_dd = nhl.nhl_lib_simple(os.path.join(TEMP, qe_config['nhl_dir']), ivfs, cl_weight, lmax_qlm)
@@ -125,15 +125,25 @@ class FilteringAndQE:
                                          {'t': ivfs.get_ftl(), 'e':ivfs.get_fel(), 'b':ivfs.get_fbl()}, lmax_qlm)
         self.qresp_dd = qresp_dd
         
-        qcls_dd = qecl.library(os.path.join(TEMP, 'qcls_dd'), qlms_dd, qlms_dd, np.arange(400,1000))
+        qcls_dd = qecl.library(os.path.join(TEMP, qe_config['qcld_dir']), qlms_dd, qlms_dd, np.arange(400,1000))
         self.qcls_dd = qcls_dd
         
-        # ss_dict = { k : v for k, v in zip( np.concatenate( [ range(i*60, (i+1)*60) for i in range(0,5) ] ),
-        #             np.concatenate( [ np.roll( range(i*60, (i+1)*60), -1 ) for i in range(0,5) ] ) ) }
-        # ivfs_s = filt_util.library_shuffle(ivfs, ss_dict)
-        # qlms_ss = qest.library_sepTP(os.path.join(TEMP, 'qlms_ss'), ivfs,ivfs_s, cl_len['te'], nside,lmax_qlm=lmax_qlm)
-        # qcls_ss = qecl.library(os.path.join(TEMP, 'qcls_ss'), qlms_ss, qlms_ss,np.array([]))
-        # self.qcls_ss = qcls_ss
+        ss_dict = { k : v for k, v in zip( np.concatenate( [ range(i*60, (i+1)*60) for i in range(0,5) ] ),
+                    np.concatenate( [ np.roll( range(i*60, (i+1)*60), -1 ) for i in range(0,5) ] ) ) }
+        ivfs_s = filt_util.library_shuffle(ivfs, ss_dict)
+        qlms_ss = qest.library_sepTP(os.path.join(TEMP, qe_config['qlms_dir']), ivfs,ivfs_s, cl_len['te'], nside,lmax_qlm=lmax_qlm)
+        self.qlms_ss = qlms_ss
+        qcls_ss = qecl.library(os.path.join(TEMP, qe_config['qcls_dir']), qlms_ss, qlms_ss,np.array([]))
+        
+        ds_dict = { k : 0 for k in range(1,101)}
+        
+        ivfs_d = filt_util.library_shuffle(ivfs, ds_dict)
+        qlms_ds = qest.library_sepTP(os.path.join(TEMP, 'qlms_ds'), ivfs, ivfs_d, cl_len['te'], nside, lmax_qlm=lmax_qlm)
+        qcls_ds = qecl.library(os.path.join(TEMP, 'qcls_ds'), qlms_ds, qlms_ds, np.array([]))
+        self.qlms_ds = qlms_ds
+
+        self.qcls_ss = qcls_ss
+        self.qcls_ds = qcls_ds
 
 
 if __name__ == "__main__":
@@ -147,6 +157,8 @@ if __name__ == "__main__":
     parser.add_argument('-set',dest='set',action='store',type=int,default=None)
     parser.add_argument('-dd', dest='dd', action='store_true', help='perform dd qlms')
     parser.add_argument('-qclss', dest='qclss', action='store_true', help='perform qcls ss')
+    parser.add_argument('-qcldd', dest='qcldd', action='store_true', help='perform qcls dd')
+    parser.add_argument('-qclds', dest='qclds', action='store_true', help='perform qcls ds')
     args = parser.parse_args()
     ini = args.inifile[0]
     
@@ -197,6 +209,18 @@ if __name__ == "__main__":
         for i in jobs[mpi.rank::mpi.size]:
             print(f"Making qcls-{i} in Processor-{mpi.rank}")
             qcls = fqe.qcls_ss.get_sim_qcl(fqe.qe_key,i)
+            del qcls
+            
+    if args.qcldd:
+        for i in jobs[mpi.rank::mpi.size]:
+            print(f"Making qcls-{i} in Processor-{mpi.rank}")
+            qcls = fqe.qcls_dd.get_sim_qcl(fqe.qe_key,i)
+            del qcls
+    
+    if args.qclds:
+        for i in jobs[mpi.rank+1::mpi.size]:
+            print(f"Making qcls-{i} in Processor-{mpi.rank}")
+            qcls = fqe.qcls_ds.get_sim_qcl(fqe.qe_key,i)
             del qcls
             
 

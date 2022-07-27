@@ -14,6 +14,7 @@ parser = argparse.ArgumentParser(description='ini')
 parser.add_argument('inifile', type=str, nargs=1)
 parser.add_argument('-map_exp', dest='map_exp',action='store_true',help='Make experiment maps')
 parser.add_argument('-map_lensed', dest='map_lensed',action='store_true',help='Make Lensed CMB maps')
+parser.add_argument('-fg_weight', dest='fg_weight',action='store_true',help='FG weights')
 args = parser.parse_args()
 ini = args.inifile[0]
 
@@ -69,14 +70,19 @@ fg_nside = fg_config['nside']
 fg_table = fg_config['table']
 
 
-if args.map_exp:
-    if do_fg:
-        exp_map = SimExperimentFG(input_mappath,map_path,fg_nside,maskfile,beam,fg_dir,fg_str,fg_table)
-    else:
-        exp_map = SimExperiment(input_mappath,map_path,nside,maskfile,beam,nlev_t,nlev_p,n_sims,noise_folder,bool(noise_do_red))
-    
+if do_fg:
+    exp_map = SimExperimentFG(input_mappath,map_path,fg_nside,maskfile,beam,fg_dir,fg_str,fg_table)
+else:
+    exp_map = SimExperiment(input_mappath,map_path,nside,maskfile,beam,nlev_t,nlev_p,n_sims,noise_folder,bool(noise_do_red))
+
+if args.map_exp:    
     exp_map.run_job(n_sims)
-    
+mpi.barrier()
+
+if args.fg_weight:
+    no_sims = fg_config['nsims']
+    print(no_sims)
+    exp_map.run_job(no_sims,True)
 mpi.barrier()
 
 if args.map_lensed:
@@ -87,3 +93,4 @@ if args.map_lensed:
     cmb_map = CMBLensed(raw_mappath,n_sims,cl_path,unlen_file,pot_file,len_file,sim_set)
     cmb_map.run_job()
 mpi.barrier()
+

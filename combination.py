@@ -5,10 +5,113 @@ import toml
 from plancklens import utils
 import mpi
 
+class CSExperiment:
+    
+    def __init__(self,ini,red):
+        
+        ini_dir = '/global/u2/l/lonappan/workspace/s4bird/s4bird/ini/'
+        config = toml.load(os.path.join(ini_dir,ini))
+        
+        fg_config = config['Foreground']
+        
+        self.table = surveys().get_table_dataframe(fg_config['table'])
+        _nlev_p = np.array(self.table.depth_p)
+        _nlev_t = np.array(self.table.depth_p)/np.sqrt(2)
+        _fwhm = np.array(self.table.fwhm)
+        
+        self.nlev_p = np.radians(_nlev_p/60.)**2
+        self.nlev_t = np.radians(_nlev_t/60.)**2
+        self.fwhm = np.radians(_fwhm/60)
+        
+        self.lmax = 3*nside -1
+        
+        fnoise = 1 + ((np.arange(len(self.gauss_beam[0]))/200)**-5)
+        fnoise[0] = fnoise[1]
+        self.fnoise = fnoise
+        self.red = bool(red)
+        
+        self.basedir = os.path.join(config["File"]["base_folder"],config["File"]["base_name"])
+        self.simdir = os.path.join(self.basedir,f"SIM_SET{int(config['Map']['set'])}_FG","Maps")
+        
+        
 
+    def apply_harmonic_W(self,W,  # (..., ell, comp, freq)
+                          alms):  # (freq, ..., lm)
+        lmax = hp.Alm.getlmax(alms.shape[-1])
+        res = np.full((W.shape[-2],) + alms.shape[1:], np.nan, dtype=alms.dtype)
+        start = 0
+        for i in range(0, lmax+1):
+            n_m = lmax + 1 - i
+            res[..., start:start+n_m] = np.einsum('...lcf,f...l->c...l',
+                                                  W[..., i:, :, :],
+                                                  alms[..., start:start+n_m])
+            start += n_m
+        return res
+    
+    def w(self,idx):
+        fname = os.path.join(self.simdir,f"exp_weight_{idx:04d}.pkl")
+        return pk.load(open(fname,'rb'))
+
+    def get_noise(self,t,p):
+        tl = np.ones(self.lmax+1)*t
+        el = np.ones(self.lmax+1)*p
+        bl = np.ones(self.lmax+1)*p
+        te = np.zeros(self.lmax+1)
+        return hp.synalm([tl,el,bl,te],lmax=self.lmax,new=True)
+
+    def get_noise_de(self,t,p,b):
+        fl = hp.gauss_beam(b,lmax=self.lmax,pol=True).T
+        alms = self.get_noise(t,p)
+        return np.array([hp.almxfl(alms[0],1/fl[0]),hp.almxfl(alms[1],1/fl[1]),hp.almxfl(alms[2],1/fl[2])])
+
+    def get_alms(self):
+        alms = []
+        for i in tqdm(range(len(self.nlev_t)),desc='Generating Alms',unit='Freq'):
+            alms.append(self.get_noise_de(self.nlev_t[i],self.nlev_p[i],self.fwhm[i]))
+        return np.array(alms)
+    
+    def get_result(self,idx):
+        return self.apply_harmonic_W(self.w(idx),self.get_alms())
+    
+    def noise_cls(self):
+        alms = self.get_result()[0]
+        return hp.alm2cl(alms[0]),hp.alm2cl(alms[1]),hp.alm2cl(alms[2])
+    
+    def mpi_mean(self):
+        fname = os.path.join(self.libdir,f"mean_noise_alm_{int(mpi.size)}_FG.fits")
+        if os.path.isfile(fname):
+            return hp.read_alm(fname,(1,2,3))
+        else:
+            if not mpi.size > 99:
+                raise NotImplementedError
+            mpi.barrier()
+            data = self.get_result(mpi.rank)
+            tlm = np.abs(data[0])**2
+            elm = np.abs(data[1])**2
+            blm = np.abs(data[2])**2
+
+            if mpi.rank == 0:
+                total_tlm = np.zeros_like(tlm)
+                total_elm = np.zeros_like(elm)
+                total_blm = np.zeros_like(blm)
+            else:
+                total_tlm = None
+                total_elm = None
+                total_blm = None
+            
+            mpi.com.Reduce(tlm,total_tlm, op=mpi.mpi.SUM,root=0)
+            mpi.com.Reduce(elm,total_elm, op=mpi.mpi.SUM,root=0)
+            mpi.com.Reduce(blm,total_blm, op=mpi.mpi.SUM,root=0)
+            
+            if mpi.rank == 0:
+                mean = [total_tlm/mpi.size,total_elm/mpi.size,total_blm/mpi.size]
+                hp.write_alm(fname,mean)
+            
+            mpi.barrier()
+            
+    
 class Experiment:
     def __init__(self,ini,red):
-
         
         mpi.barrier()
         ini_dir = '/global/u2/l/lonappan/workspace/s4bird/s4bird/ini/'
@@ -54,7 +157,7 @@ class Experiment:
         if os.path.isfile(fname):
             return hp.read_alm(fname,(1,2,3))
         else:
-            if not mpi.size > 100:
+            if not mpi.size > 99:
                 raise NotImplementedError
             mpi.barrier()
             data = self.get_noise_alm_beam_deconv(mpi.rank)
@@ -80,6 +183,9 @@ class Experiment:
                 hp.write_alm(fname,mean)
             
             mpi.barrier()
+            
+            
+
 class W:
     def __init__(self,first,second):
         self.first = first

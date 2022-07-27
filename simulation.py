@@ -130,19 +130,21 @@ class SimExperimentFG:
         self.fg_dir = fg_dir
         self.fg_str = fg_str
         
-        if mpi.rank == 0:
-            table = surveys().get_table_dataframe(table)
-            mask = hp.ud_grade(hp.read_map(maskpath,verbose=False),dnside)
-        else:
-            table = None
-            mask = None
-        mpi.barrier()
+#         if mpi.rank == 0:
+#             table = surveys().get_table_dataframe(table)
+#             mask = hp.ud_grade(hp.read_map(maskpath,verbose=False),dnside)
+#         else:
+#             table = None
+#             mask = None
+#         mpi.barrier()
             
-        table = mpi.com.bcast(table, root=0)
-        mask = mpi.com.bcast(mask, root=0)
-        mpi.barrier()
-        self.mask = mask
-        self.table = table
+#         table = mpi.com.bcast(table, root=0)
+#         mask = mpi.com.bcast(mask, root=0)
+#         mpi.barrier()
+#         self.mask = mask
+#         self.table = table
+        self.table = surveys().get_table_dataframe(table)
+        self.mask = hp.ud_grade(hp.read_map(maskpath,verbose=False),dnside)
         self.dnside = dnside
         
         if mpi.rank == 0:
@@ -207,24 +209,32 @@ class SimExperimentFG:
             return alms
         
     def get_weights(self,idx):
-        freqs = np.array(self.table.frequency)
-        fwhm = np.array(self.table.fwhm)
-        nlev_p = np.array(self.table.depth_p)
-        nlev_t = nlev_p/np.sqrt(2)
-        alms = self.get_alms_arr(idx,freqs,nlev_t,nlev_p,fwhm)
-        instrument = INST(None,freqs)
-        components = [CMB()]
-        bins = np.arange(1000) * 10
-        result = harmonic_ilc_alm(components, instrument,alms,bins)
-        w = result.W
-        pk.dump(w,open('weight.pkl','wb'))
-        return w
+        fname = os.path.join(self.outfolder,f"exp_weight_{idx:04d}.pkl")
+        print(f"Getting Weights {idx}")
+        if os.path.isfile(fname):
+            return pk.load(open(fname,'rb'))
+        else:
+            freqs = np.array(self.table.frequency)
+            fwhm = np.array(self.table.fwhm)
+            nlev_p = np.array(self.table.depth_p)
+            nlev_t = nlev_p/np.sqrt(2)
+            alms = self.get_alms_arr(idx,freqs,nlev_t,nlev_p,fwhm)
+            instrument = INST(None,freqs)
+            components = [CMB()]
+            bins = np.arange(1000) * 10
+            result = harmonic_ilc_alm(components, instrument,alms,bins)
+            w = result.W
+            pk.dump(w,open(fname,'wb'))
+            return w
         
-    def run_job(self,nsim):
+    def run_job(self,nsim,weight=False):
         jobs = np.arange(nsim)
         for i in jobs[mpi.rank::mpi.size]:
             print(f"Component sep-{i} in processor-{mpi.rank}")
-            self.get_comp_sep_alm(i)            
+            if not weight:
+                self.get_comp_sep_alm(i)
+            else:
+                self.get_weights(i)
     
 
         

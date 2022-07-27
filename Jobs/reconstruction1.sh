@@ -16,7 +16,7 @@ source /global/homes/l/lonappan/.bashrc
 conda activate PC2
 cd /global/u2/l/lonappan/workspace/s4bird/s4bird
 
-export ini=litebird.ini
+export ini=litebird1.ini
 
 
 mpirun -np $SLURM_NTASKS python quest.py $ini -dd

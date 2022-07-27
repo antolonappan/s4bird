@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --qos=debug
 #SBATCH --constraint=haswell
-#SBATCH --nodes=64
-#SBATCH --ntasks=1000
+#SBATCH --nodes=20
+#SBATCH --ntasks=400
 #SBATCH --cpus-per-task=1
 #SBATCH -J qclss
 #SBATCH -o out/qclss.out
@@ -16,7 +16,7 @@ source /global/homes/l/lonappan/.bashrc
 conda activate PC2
 cd /global/u2/l/lonappan/workspace/s4bird/s4bird
 
-export ini=litebird.ini
+export ini=litebird1.ini
 
 
 mpirun -np $SLURM_NTASKS python quest.py $ini -qclss
